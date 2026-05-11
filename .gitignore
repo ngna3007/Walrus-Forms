@@ -1,0 +1,12 @@
+.gitnexus
+app/.env.local
+app/.env.*.local
+node_modules/
+app/node_modules/
+app/dist/
+app/test-results/
+app/playwright-report/
+app/.playwright/
+app/tsconfig.tsbuildinfo
+app/src/**/*.js
+indexer/target/

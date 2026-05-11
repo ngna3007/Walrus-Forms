@@ -1,0 +1,91 @@
+import { SuiGrpcClient } from "@mysten/sui/grpc";
+import type { Transaction } from "@mysten/sui/transactions";
+import { walrus, WalrusFile } from "@mysten/walrus";
+
+import { FULLNODE_URL, NETWORK, WALRUS_DEFAULT_EPOCHS } from "../config";
+
+/**
+ * Walrus TS SDK client (stack-native: users pay their own storage via wallet).
+ *
+ * Reference:
+ *   https://sdk.mystenlabs.com/walrus
+ *   https://github.com/MystenLabs/ts-sdks/tree/main/packages/walrus/examples/write-from-wallet
+ */
+
+let _client: ReturnType<typeof createClient> | null = null;
+
+function createClient() {
+  return new SuiGrpcClient({
+    network: NETWORK,
+    baseUrl: FULLNODE_URL,
+  }).$extend(walrus());
+}
+
+export function getWalrusSdkClient() {
+  if (!_client) _client = createClient();
+  return _client;
+}
+
+export type SignAndExecute = (args: { transaction: Transaction }) => Promise<unknown>;
+
+export interface WriteFilesArgs {
+  files: { contents: Uint8Array; identifier: string }[];
+  /** Address that will own the resulting Walrus `Blob` NFTs. Usually the connected wallet. */
+  owner: string;
+  epochs?: number;
+  deletable?: boolean;
+  signAndExecute: SignAndExecute;
+}
+
+export interface WriteFilesResult {
+  blobId: string;
+  objectId: string;
+  identifier: string;
+}
+
+/**
+ * Browser wallet upload via `writeFilesFlow`.
+ *
+ * The flow has five steps. `register` and `certify` each open a wallet popup;
+ * the upload step runs in the background. Wallets block popups that aren't a
+ * direct response to user interaction, so call this only inside an event handler.
+ */
+export async function writeFilesWithWallet({
+  files,
+  owner,
+  epochs = WALRUS_DEFAULT_EPOCHS,
+  deletable = false,
+  signAndExecute,
+}: WriteFilesArgs): Promise<WriteFilesResult[]> {
+  const client = getWalrusSdkClient();
+
+  const walrusFiles = files.map((f) =>
+    WalrusFile.from({ contents: f.contents, identifier: f.identifier }),
+  );
+
+  const flow = client.walrus.writeFilesFlow({ files: walrusFiles });
+
+  await flow.encode();
+
+  const registerTx = flow.register({ epochs, owner, deletable });
+  await signAndExecute({ transaction: registerTx });
+
+  await flow.upload();
+
+  const certifyTx = flow.certify();
+  await signAndExecute({ transaction: certifyTx });
+
+  const listed = await flow.listFiles();
+  return listed.map((entry, idx) => ({
+    blobId: entry.blobId,
+    objectId: entry.id,
+    identifier: files[idx]?.identifier ?? "",
+  }));
+}
+
+/** Read a blob through the SDK. Slower than aggregator HTTP but no aggregator trust. */
+export async function readBlobViaSdk(blobId: string): Promise<Uint8Array> {
+  const client = getWalrusSdkClient();
+  const bytes = await client.walrus.readBlob({ blobId });
+  return bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+}
