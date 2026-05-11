@@ -1,0 +1,8 @@
+[package]
+name = "walrus_forms"
+edition = "2024.beta"
+license = "MIT"
+authors = ["Walrus Forms Team"]
+
+[addresses]
+walrus_forms = "0x0"
