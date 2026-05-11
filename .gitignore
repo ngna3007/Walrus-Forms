@@ -10,3 +10,4 @@ app/.playwright/
 app/tsconfig.tsbuildinfo
 app/src/**/*.js
 indexer/target/
+contracts/build/
