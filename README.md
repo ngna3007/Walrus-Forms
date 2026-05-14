@@ -37,12 +37,14 @@ Today's feedback tools own your data. Reports vanish into someone else's databas
 - Encryption happens in the browser before bytes leave the device
 - Soulbound receipts arrive directly in the submitter's wallet on resolve
 
-### Under the hood
-- Sui Move 2024.beta contracts: `form_registry`, `submission`, `triage`, `seal_policies`, `reputation`
-- Anti-self-credit gates on `mint_receipt` and bounty payout (submitter must differ from form owner)
-- Strict identity parsing on Seal `seal_approve_*` entry functions (allowlist 48 bytes, timelock 24 bytes, etc.)
-- Chain-status hydration on every dashboard tick - local optimism never persists past one chain confirmation
-- Owner-scoped Supabase RLS via `x-owner-key` header (per-wallet cache, never global)
+### Sui stack we apply
+
+- **Sui Move** for the core domain. Five modules: `form_registry` (Form + Allowlist), `submission`, `triage` (state machine), `seal_policies` (allowlist / timelock / token-gated approvals), and `reputation` (soulbound `SubmissionReceipt`).
+- **Programmable Transaction Blocks** to compose multi-step actions in one signature: publish creates the allowlist, registers the form, and uploads schema metadata together; resolve transitions status, mints the receipt, and pays the bounty together.
+- **Walrus** stores every schema, submission, and uploaded file as encrypted blobs. The dApp supports both the publisher HTTP API and the `@mysten/walrus` SDK with `writeFilesFlow`, plus inline SUI to WAL swap during publish so users never have to acquire WAL separately.
+- **Seal** provides client-side threshold IBE. Submissions encrypt under a per-form identity bound to the on-chain policy object, so only the form owner (or an allowlist member) can pull the decryption key. A session-key cache lets one signature unlock an entire submission batch.
+- **dApp Kit** drives wallet connections (Slush, Phantom, Suiet) and transaction execution through `useSignAndExecuteTransaction`.
+- **Enoki** powers Google zkLogin for first-time submitters and sponsors their gas, so a brand-new wallet can submit a form without funding it first.
 
 ---
 
