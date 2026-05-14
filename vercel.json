@@ -1,7 +1,7 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "npm run -w app build",
-  "installCommand": "npm install",
+  "buildCommand": "npm run build --workspace=walrus-forms-app",
+  "installCommand": "npm install --include-workspace-root",
   "outputDirectory": "app/dist",
   "framework": "vite"
 }
