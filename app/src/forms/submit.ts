@@ -9,7 +9,7 @@ const CLOCK_OBJECT_ID = "0x6";
 
 export type FormPolicy =
   | { kind: "public" }
-  | { kind: "allowlist"; allowlistObjectId: string }
+  | { kind: "allowlist"; allowlistObjectId: string; allowlistId?: string; allowlistName?: string; members?: string[] }
   | { kind: "timelock"; unlockTimeMs: bigint }
   | { kind: "tokenGated"; gateObjectId: string };
 
@@ -20,6 +20,7 @@ export interface SubmitArgs {
   schema: FormSchema;
   payload: SubmissionPayload;
   fileBlobIds?: string[];
+  createReputation?: boolean;
 }
 
 export interface SubmitResult {
@@ -32,6 +33,10 @@ export interface SubmitResult {
  * then return a Transaction for the caller's wallet to sign + execute.
  */
 export async function buildSubmissionTx(args: SubmitArgs): Promise<SubmitResult> {
+  if (!args.payload.submitter) {
+    throw new Error("Submission payload must include the submitter address.");
+  }
+
   const json = JSON.stringify(args.payload);
   const plain = new TextEncoder().encode(json);
 
@@ -55,6 +60,12 @@ export async function buildSubmissionTx(args: SubmitArgs): Promise<SubmitResult>
       tx.object(CLOCK_OBJECT_ID),
     ],
   });
+  // Reputation is no longer created at submit time. The new design mints a
+  // soulbound `SubmissionReceipt` to the submitter when the form owner resolves
+  // the submission. See `reputation::mint_receipt` and the Drawer's
+  // `mintReceiptAndPayout` flow in `pages/AdminPage.tsx`. The `createReputation`
+  // arg is kept for backwards-compat with older callers and is a no-op.
+  void args.createReputation;
 
   return { submissionBlobId: blobId, txBuilder: tx };
 }

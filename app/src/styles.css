@@ -132,6 +132,16 @@
   ::selection {
     background: color-mix(in oklab, var(--primary) 30%, transparent);
   }
+
+  select option {
+    background: var(--popover);
+    color: var(--popover-foreground);
+  }
+
+  select option:checked {
+    background: color-mix(in oklab, var(--primary) 18%, var(--popover));
+    color: var(--popover-foreground);
+  }
 }
 
 @layer components {
@@ -282,3 +292,12 @@
   color: var(--muted-foreground);
   margin: 0.5em 0;
 }
+.prose-md strong { font-weight: 700; color: inherit; }
+.prose-md em { font-style: italic; }
+.prose-md del { text-decoration: line-through; opacity: 0.7; }
+.prose-md u { text-decoration: underline; }
+.prose-md hr { border: 0; border-top: 1px solid var(--border); margin: 0.75em 0; }
+.prose-md table { border-collapse: collapse; width: 100%; font-size: 0.9em; }
+.prose-md th, .prose-md td { border: 1px solid var(--border); padding: 0.35em 0.55em; text-align: left; }
+.prose-md th { background: var(--muted); font-weight: 600; }
+.prose-md img { max-width: 100%; border-radius: 0.375rem; margin: 0.5em 0; }

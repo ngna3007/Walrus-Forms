@@ -6,6 +6,7 @@ import { Card } from "@/components/ui/card";
 import { Label } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { WalSwapCard } from "@/components/WalSwapCard";
 import { applyTheme, getStoredTheme, type Theme } from "@/lib/theme";
 import { NETWORK, PACKAGE_ID, WALRUS_USE_SDK } from "@/config";
 
@@ -66,7 +67,7 @@ export function SettingsPage() {
             <div>
               <Label>Walrus upload mode</Label>
               <p className="mt-1 text-sm text-muted-foreground max-w-xl">
-                <strong>Publisher HTTP</strong> — fast, no wallet popups, publisher pays. Best for demos.
+                <strong>Publisher HTTP</strong> — fast, no wallet popups, publisher pays for storage.
                 <br />
                 <strong>SDK + wallet</strong> — user pays own storage via writeFilesFlow. Stack-native, more popups.
               </p>
@@ -84,20 +85,42 @@ export function SettingsPage() {
           </div>
         </Card>
 
+        <div className="lg:col-span-2">
+          <WalSwapCard />
+        </div>
+
         <Card className="p-6 lg:col-span-2">
           <div className="flex items-start justify-between gap-4">
             <div>
               <Label>Seal session keys</Label>
               <p className="mt-1 text-sm text-muted-foreground max-w-xl">
-                Session keys cache decryption permission per package for 10 minutes. Sign once, decrypt many.
+                Session keys cache decryption permission per package for 10 minutes. Sign once,
+                decrypt many. Sessions are scoped to the connected wallet and clear automatically
+                when the wallet changes or this tab closes.
               </p>
             </div>
             <KeyRound className="h-6 w-6 text-tertiary/70 shrink-0" />
           </div>
-          <div className="mt-4 flex items-center gap-2">
-            <Button variant="outline" size="sm">
-              Clear session cache
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                try {
+                  window.localStorage.removeItem("walrus.forms.localForms.v1");
+                  window.localStorage.removeItem("walrus.forms.submissions.v1");
+                  window.localStorage.removeItem("walrus.forms.allowlists.v1");
+                } catch {
+                  // localStorage may not be available; reload is still useful.
+                }
+                window.location.reload();
+              }}
+            >
+              Clear local cache &amp; reload
             </Button>
+            <p className="text-xs text-muted-foreground">
+              Drops cached form/submission/allowlist copies. On-chain + Supabase data is untouched.
+            </p>
           </div>
         </Card>
       </div>

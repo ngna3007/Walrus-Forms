@@ -10,6 +10,7 @@ export type StoreResult = {
   blobId: string;
   suiObjectId?: string;
   endEpoch?: number;
+  startEpoch?: number;
 };
 
 export interface StoreOptions {
@@ -67,6 +68,7 @@ async function storeBlobViaPublisher(data: Uint8Array, epochs: number): Promise<
     return {
       blobId: json.newlyCreated.blobObject.blobId,
       suiObjectId: json.newlyCreated.blobObject.id,
+      startEpoch: json.newlyCreated.blobObject.storage?.startEpoch,
       endEpoch: json.newlyCreated.blobObject.storage?.endEpoch,
     };
   }

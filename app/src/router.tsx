@@ -7,10 +7,12 @@ import { SubmitPage } from "@/pages/SubmitPage";
 import { AdminPage } from "@/pages/AdminPage";
 import { AllowlistsPage } from "@/pages/AllowlistsPage";
 import { SettingsPage } from "@/pages/SettingsPage";
+import { TemplatesPage } from "@/pages/TemplatesPage";
 
 export const router = createBrowserRouter([
   { path: "/", element: <LandingPage /> },
   { path: "/dashboard", element: <DashboardPage /> },
+  { path: "/dashboard/templates", element: <TemplatesPage /> },
   { path: "/dashboard/allowlists", element: <AllowlistsPage /> },
   { path: "/dashboard/settings", element: <SettingsPage /> },
   { path: "/builder", element: <BuilderPage /> },

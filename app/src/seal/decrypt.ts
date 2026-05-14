@@ -1,76 +1,66 @@
 import { EncryptedObject, SessionKey } from "@mysten/seal";
-import type { Signer } from "@mysten/sui/cryptography";
-import { fromHex } from "@mysten/sui/utils";
 
-import { PACKAGE_ID, SESSION_KEY_TTL_MIN } from "../config";
 import { getSealClient, getSuiClient } from "./client";
 import {
   buildAllowlistApprovePtb,
   buildTimelockApprovePtb,
   buildTokenGatedApprovePtb,
 } from "../helpers/ptb";
+import type { FormPolicy } from "../forms/submit";
 
 export type DecryptArgs = {
   ciphertext: Uint8Array;
-  signer: Signer;
-  /** Required for allowlist + token-gated policies. */
-  policyObjectId?: string;
+  sessionKey: SessionKey;
+  /**
+   * Explicit policy kind + policy object id. Required so the decrypt-side PTB matches
+   * the policy used at encrypt time. Previously the call site relied on a try/catch
+   * heuristic ("try allowlist, fall back to token-gated") which surfaced cryptic Seal
+   * errors when the wrong policy PTB was sent.
+   */
+  policy: FormPolicy;
 };
-
-let cachedSession: { key: SessionKey; address: string; expiresAt: number } | null = null;
-
-async function getOrCreateSession(signer: Signer): Promise<SessionKey> {
-  const address = signer.toSuiAddress();
-  const now = Date.now();
-  if (cachedSession && cachedSession.address === address && cachedSession.expiresAt > now) {
-    return cachedSession.key;
-  }
-
-  const key = await SessionKey.create({
-    address,
-    packageId: PACKAGE_ID,
-    ttlMin: SESSION_KEY_TTL_MIN,
-    signer,
-    suiClient: getSuiClient(),
-  });
-
-  cachedSession = {
-    key,
-    address,
-    expiresAt: now + SESSION_KEY_TTL_MIN * 60 * 1000 - 30_000,
-  };
-  return key;
-}
 
 export async function decryptSubmission(args: DecryptArgs): Promise<Uint8Array> {
   const seal = getSealClient();
   const sui = getSuiClient();
 
   const parsed = EncryptedObject.parse(args.ciphertext);
-  const sessionKey = await getOrCreateSession(args.signer);
+  const identity = toBytes(parsed.id);
 
-  const identity = fromHex(parsed.id);
-  const txBytes = await buildApprovePtb(sui, identity, args.policyObjectId);
+  const txBytes = await buildPolicyApprovePtb(sui, args.policy, identity);
 
   return seal.decrypt({
     data: args.ciphertext,
-    sessionKey,
+    sessionKey: args.sessionKey,
     txBytes,
   });
 }
 
-async function buildApprovePtb(
+async function buildPolicyApprovePtb(
   sui: ReturnType<typeof getSuiClient>,
+  policy: FormPolicy,
   identity: Uint8Array,
-  policyObjectId: string | undefined,
 ): Promise<Uint8Array> {
-  // Identity prefix tells us which policy was used. The first 32 bytes refer to a
-  // Sui object ID for allowlist / token-gated, or a u64 timestamp for timelock.
-  // Caller must hint via `policyObjectId`.
-  if (!policyObjectId) {
-    return buildTimelockApprovePtb(sui, identity);
+  switch (policy.kind) {
+    case "allowlist":
+      return buildAllowlistApprovePtb(sui, identity, policy.allowlistObjectId);
+    case "timelock":
+      return buildTimelockApprovePtb(sui, identity);
+    case "tokenGated":
+      return buildTokenGatedApprovePtb(sui, identity, policy.gateObjectId);
+    case "public":
+      throw new Error("Public submissions do not require Seal decryption.");
   }
-  return buildAllowlistApprovePtb(sui, identity, policyObjectId).catch(() =>
-    buildTokenGatedApprovePtb(sui, identity, policyObjectId),
-  );
+}
+
+function toBytes(value: unknown): Uint8Array {
+  if (value instanceof Uint8Array) return value;
+  if (Array.isArray(value)) return Uint8Array.from(value);
+  if (typeof value === "string") {
+    const clean = value.startsWith("0x") ? value.slice(2) : value;
+    const bytes = new Uint8Array(clean.length / 2);
+    for (let i = 0; i < bytes.length; i++) bytes[i] = parseInt(clean.slice(i * 2, i * 2 + 2), 16);
+    return bytes;
+  }
+  throw new Error("Encrypted object identity has an unsupported encoding.");
 }

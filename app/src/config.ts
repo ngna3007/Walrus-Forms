@@ -54,12 +54,34 @@ export const WALRUS_DEFAULT_EPOCHS = envNumber("VITE_WALRUS_DEFAULT_EPOCHS", 5);
  */
 export const WALRUS_USE_SDK = envBool("VITE_WALRUS_USE_SDK", false);
 
+export const SUPABASE_URL = envString("VITE_SUPABASE_URL", "");
+export const SUPABASE_PUBLISHABLE_KEY = envString("VITE_SUPABASE_PUBLISHABLE_KEY", "");
+export const SUPABASE_FORMS_TABLE = envString("VITE_SUPABASE_FORMS_TABLE", "forms");
+export const SUPABASE_SUBMISSIONS_TABLE = envString("VITE_SUPABASE_SUBMISSIONS_TABLE", "submissions");
+
+export const ENOKI_PUBLIC_API_KEY = envString("VITE_ENOKI_PUBLIC_API_KEY", "");
+export const ENOKI_GOOGLE_CLIENT_ID = envString("VITE_ENOKI_GOOGLE_CLIENT_ID", "");
+export const ENOKI_FACEBOOK_CLIENT_ID = envString("VITE_ENOKI_FACEBOOK_CLIENT_ID", "");
+export const ENOKI_TWITCH_CLIENT_ID = envString("VITE_ENOKI_TWITCH_CLIENT_ID", "");
+export const ENOKI_SPONSOR_URL = envString("VITE_ENOKI_SPONSOR_URL", "");
+export const ENOKI_SPONSORED_SUBMISSIONS = envBool("VITE_ENOKI_SPONSORED_SUBMISSIONS", true);
+export const ENOKI_SPONSOR_CONFIGURED = Boolean(ENOKI_SPONSOR_URL);
+
+export const ENOKI_ZKLOGIN_ENABLED = Boolean(
+  ENOKI_PUBLIC_API_KEY &&
+    (ENOKI_GOOGLE_CLIENT_ID || ENOKI_FACEBOOK_CLIENT_ID || ENOKI_TWITCH_CLIENT_ID),
+);
+
 function envString(key: string, fallback: string): string {
   return import.meta.env[key] || fallback;
 }
 
 function envNumber(key: string, fallback: number): number {
-  const value = Number(import.meta.env[key]);
+  const raw = import.meta.env[key];
+  // Treat empty / missing as fallback. Without this, `Number("")` is 0 — so a
+  // forgotten `VITE_SEAL_THRESHOLD=` would silently set threshold to 0.
+  if (raw === undefined || raw === null || raw === "") return fallback;
+  const value = Number(raw);
   return Number.isFinite(value) ? value : fallback;
 }
 

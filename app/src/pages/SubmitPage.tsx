@@ -1,43 +1,77 @@
 import { useEffect, useMemo, useState } from "react";
-import { useParams } from "react-router-dom";
-import { Lock, ShieldCheck, AlertCircle } from "lucide-react";
-import { useSignAndExecuteTransaction, useSuiClientQuery } from "@mysten/dapp-kit";
-import { fromHex, toHex } from "@mysten/sui/utils";
+import { Link, useParams } from "react-router-dom";
+import { AlertCircle, Lock, ShieldCheck, Wallet, Zap } from "lucide-react";
+import {
+  ConnectButton,
+  useCurrentAccount,
+  useSignAndExecuteTransaction,
+  useSignTransaction,
+  useSuiClient,
+  useSuiClientQuery,
+} from "@mysten/dapp-kit";
+import type { SuiTransactionBlockResponse } from "@mysten/sui/jsonRpc";
+import type { Transaction } from "@mysten/sui/transactions";
+import { toHex } from "@mysten/sui/utils";
 
 import { Logo } from "@/components/Logo";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { FormRenderer } from "@/components/FormRenderer";
 import { buildSubmissionTx, type FormPolicy } from "@/forms/submit";
+import { saveSubmission } from "@/forms/submissions";
+import { bumpFormSubmissionCount } from "@/forms/localForms";
+import { addSubscription } from "@/forms/subscriptions";
 import type { FormSchema, SubmissionPayload } from "@/forms/types";
 import { readJson } from "@/walrus/client";
 import { applyTheme, getStoredTheme } from "@/lib/theme";
+import { truncateAddr } from "@/lib/utils";
+import { ENOKI_SPONSORED_SUBMISSIONS, ENOKI_SPONSOR_CONFIGURED, PACKAGE_ID } from "@/config";
+import { ZkLoginPrompt } from "@/enoki/ZkLoginPrompt";
+import {
+  createSponsoredSubmissionTransaction,
+  executeSponsoredSubmissionTransaction,
+} from "@/enoki/sponsor";
 
 const POLICY_LABELS: Record<FormPolicy["kind"], string> = {
   public: "Public",
-  allowlist: "Allowlist · Seal-encrypted",
-  timelock: "Time-locked · Seal-encrypted",
-  tokenGated: "Token-gated · Seal-encrypted",
+  allowlist: "Allowlist",
+  timelock: "Time-locked",
+  tokenGated: "Token-gated",
 };
 
-const DEMO_SCHEMA: FormSchema = {
-  version: 1,
-  title: "Walrus Forms — sample",
-  description: "Demo form. Markdown supported in rich-text fields.",
-  fields: [
-    { id: "name", type: "shortText", label: "Name", required: false },
-    { id: "feedback", type: "longText", label: "What's on your mind?", required: true },
-    { id: "rating", type: "stars", label: "Overall rating", required: false, max: 5 },
-  ],
-};
+function cryptoRandomHex(bytes: number): string {
+  const buf = new Uint8Array(bytes);
+  crypto.getRandomValues(buf);
+  return Array.from(buf, (b) => b.toString(16).padStart(2, "0")).join("");
+}
 
 function isRealObjectId(id: string | undefined): boolean {
   return Boolean(id && /^0x[0-9a-fA-F]{64}$/.test(id));
 }
 
+function getPolicyObjectId(policy: FormPolicy): string | undefined {
+  if (policy.kind === "allowlist") return policy.allowlistObjectId;
+  if (policy.kind === "tokenGated") return policy.gateObjectId;
+  return undefined;
+}
+
 export function SubmitPage() {
   const { formId } = useParams<{ formId: string }>();
-  const { mutateAsync: signAndExecute } = useSignAndExecuteTransaction();
+  const account = useCurrentAccount();
+  const client = useSuiClient();
+  const { mutateAsync: signAndExecute } = useSignAndExecuteTransaction<SuiTransactionBlockResponse>({
+    execute: ({ bytes, signature }) =>
+      client.executeTransactionBlock({
+        transactionBlock: bytes,
+        signature,
+        options: {
+          showEffects: true,
+          showEvents: true,
+          showObjectChanges: true,
+        },
+      }),
+  });
+  const { mutateAsync: signTransaction } = useSignTransaction();
   const [schema, setSchema] = useState<FormSchema | null>(null);
   const [schemaError, setSchemaError] = useState<string | null>(null);
 
@@ -46,11 +80,6 @@ export function SubmitPage() {
   }, []);
 
   const isReal = isRealObjectId(formId);
-
-  // Demo fallback when formId is not a real Sui object id (used for E2E + screenshots).
-  useEffect(() => {
-    if (!isReal) setSchema(DEMO_SCHEMA);
-  }, [isReal]);
 
   const { data: formObject, error: queryError } = useSuiClientQuery(
     "getObject",
@@ -68,6 +97,7 @@ export function SubmitPage() {
     return {
       title: String(fields.title ?? ""),
       schemaBlobId: String(fields.schema_blob_id ?? ""),
+      owner: String(fields.owner ?? ""),
       policy_type: Number(fields.policy_type ?? 0),
       policy_object_id: (fields.policy_object_id ?? []) as number[],
       unlock_time_ms: BigInt(String(fields.unlock_time_ms ?? "0")),
@@ -95,6 +125,23 @@ export function SubmitPage() {
     }
   }, [formMeta]);
 
+  // Auto-subscribe: when a wallet visits a public form link, add it to that
+  // wallet's local dashboard so they can find it again later. The form owner is
+  // skipped — they already see it under owned forms.
+  useEffect(() => {
+    if (!formId || !formMeta || !account?.address) return;
+    void addSubscription(
+      {
+        id: formId,
+        title: schema?.title || formMeta.title || "Untitled form",
+        ownerAddress: formMeta.owner,
+        policyKind: policy.kind,
+        addedAtMs: Date.now(),
+      },
+      account.address,
+    );
+  }, [account?.address, formId, formMeta?.owner, formMeta?.title, policy.kind, schema?.title]);
+
   useEffect(() => {
     if (!formMeta?.schemaBlobId) return;
     let cancelled = false;
@@ -113,27 +160,122 @@ export function SubmitPage() {
 
   async function handleSubmit(payload: SubmissionPayload, fileBlobIds: string[]) {
     if (!schema || !formId) throw new Error("Form not loaded");
-    const { txBuilder } = await buildSubmissionTx({
+    if (!account?.address) throw new Error("Connect a wallet to submit this form.");
+    const requireWalletId = Boolean(schema.requireWalletId);
+    // Anonymous default: synthesise an opaque id derived from blob+time so admin
+    // can still distinguish rows without revealing the submitter wallet.
+    const anonymousId = `anon:${cryptoRandomHex(8)}`;
+    const submitterForPayload = requireWalletId ? account.address : anonymousId;
+    const submissionPayload: SubmissionPayload = { ...payload, submitter: submitterForPayload };
+    const { submissionBlobId, txBuilder } = await buildSubmissionTx({
       formId,
       formObjectId: formId,
       policy,
       schema,
-      payload,
+      payload: submissionPayload,
+      fileBlobIds,
+      createReputation: Boolean(schema.reputation?.enabled),
+    });
+    let result: SuiTransactionBlockResponse;
+    // Only attempt the sponsored path when both toggles are on AND the sponsor URL
+    // is wired up; otherwise the helper throws synchronously and we double-sign.
+    if (ENOKI_SPONSORED_SUBMISSIONS && ENOKI_SPONSOR_CONFIGURED) {
+      try {
+        result = await executeSponsoredSubmit({
+          transaction: txBuilder,
+          sender: account.address,
+          formId,
+          policy,
+          createReputation: Boolean(schema.reputation?.enabled),
+        });
+      } catch (sponsorError) {
+        console.warn("Enoki sponsor unavailable, falling back to wallet-signed submission.", sponsorError);
+        result = await signAndExecute({ transaction: txBuilder });
+      }
+    } else {
+      result = await signAndExecute({ transaction: txBuilder });
+    }
+    const txDigest = typeof result.digest === "string" ? result.digest : undefined;
+    const submissionObjectId = extractSubmissionObjectId(result);
+    // Receipt is minted on resolve, not on submit — see reputation::mint_receipt.
+    const reputationObjectId: string | null = null;
+    const now = Date.now();
+    await saveSubmission({
+      id: submissionObjectId ?? (txDigest ? `${formId}:${txDigest}` : `${formId}:${submissionBlobId}:${now}`),
+      formId,
+      submitter: submitterForPayload,
+      status: 0,
+      submittedAtMs: submissionPayload.submittedAt,
+      updatedAtMs: now,
+      walrusBlobId: submissionBlobId,
+      suiSubmissionObjectId: submissionObjectId ?? undefined,
+      reputationObjectId: schema.reputation?.enabled ? reputationObjectId ?? undefined : undefined,
+      txDigest,
+      encrypted: policy.kind !== "public",
+      decrypted: policy.kind === "public",
+      payload: policy.kind === "public" ? submissionPayload : undefined,
       fileBlobIds,
     });
-    await signAndExecute({ transaction: txBuilder });
+    void bumpFormSubmissionCount(formId);
   }
 
-  const error = queryError?.message ?? schemaError;
+  async function executeSponsoredSubmit({
+    transaction,
+    sender,
+    formId,
+    policy,
+    createReputation,
+  }: {
+    transaction: Transaction;
+    sender: string;
+    formId: string;
+    policy: FormPolicy;
+    createReputation: boolean;
+  }) {
+    const allowedMoveCallTargets = [`${PACKAGE_ID}::submission::submit`];
+    // Reputation receipts now mint at resolve time (form owner), not at submit.
+    void createReputation;
+
+    const allowedAddresses = [sender, formId, PACKAGE_ID, "0x6", getPolicyObjectId(policy)].filter(
+      (value): value is string => Boolean(value && value !== "0x0"),
+    );
+
+    const sponsored = await createSponsoredSubmissionTransaction({
+      transaction,
+      client,
+      sender,
+      allowlist: { allowedMoveCallTargets, allowedAddresses },
+    });
+    const { signature } = await signTransaction({ transaction: sponsored.bytes });
+    if (!signature) throw new Error("Wallet did not return a transaction signature.");
+
+    return executeSponsoredSubmissionTransaction({
+      digest: sponsored.digest,
+      signature,
+    });
+  }
+
+  const error = !isReal ? "This public form link is not a valid published Sui Form object id." : queryError?.message ?? schemaError;
   const isSeal = policy.kind !== "public";
+  const sponsorEnabled = ENOKI_SPONSORED_SUBMISSIONS && ENOKI_SPONSOR_CONFIGURED;
 
   return (
     <div className="min-h-svh hero-gradient-bg grain text-foreground">
       <header className="px-6 py-4 flex items-center justify-between max-w-3xl mx-auto">
-        <Logo />
-        <Badge tone={isSeal ? "tertiary" : "neutral"} icon={<Lock className="h-3 w-3" />}>
-          {POLICY_LABELS[policy.kind]}
-        </Badge>
+        <Link to="/" aria-label="Go to home" className="inline-flex items-center transition-opacity hover:opacity-80">
+          <Logo />
+        </Link>
+        <div className="flex items-center gap-2">
+          <Badge tone={isSeal ? "tertiary" : "neutral"} icon={<Lock className="h-3 w-3" />}>
+            {POLICY_LABELS[policy.kind]}
+          </Badge>
+          {sponsorEnabled && (
+            <Badge tone="secondary" icon={<Zap className="h-3 w-3" />}>
+              Sponsored gas
+            </Badge>
+          )}
+          <ConnectButton />
+        </div>
       </header>
 
       <main className="px-4 sm:px-6 pb-16">
@@ -168,16 +310,69 @@ export function SubmitPage() {
               </div>
             )}
 
-            {schema && formMeta?.open !== false && (
-              <FormRenderer schema={schema} formId={formId ?? ""} onSubmit={handleSubmit} />
+            {schema && formMeta?.open !== false && !account?.address && (
+              <div className="rounded-2xl border border-border bg-background-soft px-5 py-6 text-center">
+                <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary">
+                  <Wallet className="h-5 w-5" />
+                </div>
+                <h2 className="mt-4 text-xl font-semibold">Connect wallet to submit</h2>
+                <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-muted-foreground">
+                  Use zkLogin or a Sui wallet. Walrus Forms sponsors the Sui transaction when the Enoki sponsor service is running.
+                </p>
+                <div className="mt-5 grid gap-3">
+                  <ZkLoginPrompt />
+                  <ConnectButton />
+                </div>
+              </div>
+            )}
+
+            {schema && formMeta?.open !== false && account?.address && (
+              <div className="space-y-5">
+                <div className="rounded-xl border border-border bg-background-soft px-4 py-3 text-sm">
+                  <div className="text-xs uppercase tracking-widest text-muted-foreground">Submitting as</div>
+                  <div className="mt-1 font-mono text-foreground">
+                    {truncateAddr(account.address, 10, 6)}
+                  </div>
+                </div>
+                <FormRenderer
+                  schema={schema}
+                  formId={formId ?? ""}
+                  submitter={account?.address}
+                  submitterRequired
+                  footerNote={
+                  sponsorEnabled ? "Submit transaction is sponsored using Enoki" : undefined
+                  }
+                  onSubmit={handleSubmit}
+                />
+              </div>
             )}
           </Card>
-
-          <p className="mt-6 text-center text-xs text-muted-foreground">
-            Submissions are stored on Walrus. Your wallet owns the resulting Blob NFT.
-          </p>
         </div>
       </main>
     </div>
   );
+}
+
+function extractSubmissionObjectId(result: SuiTransactionBlockResponse): string | null {
+  const createdSubmission = extractCreatedObjectId(result, "::submission::Submission");
+  if (createdSubmission) return createdSubmission;
+
+  const event = result.events?.find((item) => item.type.endsWith("::submission::SubmissionCreated"));
+  const parsed = event?.parsedJson;
+  if (parsed && typeof parsed === "object" && "submission_id" in parsed) {
+    const submissionId = (parsed as { submission_id?: unknown }).submission_id;
+    if (typeof submissionId === "string") return submissionId;
+  }
+
+  return null;
+}
+
+function extractCreatedObjectId(result: SuiTransactionBlockResponse, objectTypeSuffix: string): string | null {
+  const created = result.objectChanges?.find(
+    (change) =>
+      change.type === "created" &&
+      change.objectType.endsWith(objectTypeSuffix) &&
+      "objectId" in change,
+  );
+  return created && "objectId" in created ? created.objectId : null;
 }

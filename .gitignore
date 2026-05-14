@@ -1,6 +1,8 @@
 .gitnexus
 app/.env.local
 app/.env.*.local
+services/enoki-sponsor/.env.local
+services/enoki-sponsor/.env.*.local
 node_modules/
 app/node_modules/
 app/dist/
@@ -11,3 +13,20 @@ app/tsconfig.tsbuildinfo
 app/src/**/*.js
 indexer/target/
 contracts/build/
+
+# Demo artifacts (large media)
+Walrus Forms.mp4
+Walrus_Forms_final.mp4
+song/
+video scripts/
+image.png
+
+# Local skill workspace
+.agents/
+.claude/
+skills-lock.json
+
+# Auxiliary docs (work-in-progress, internal notes)
+*.md
+!README.md
+!**/README.md

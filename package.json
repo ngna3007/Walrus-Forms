@@ -2,12 +2,18 @@
   "name": "walrus-forms",
   "private": true,
   "version": "0.1.0",
-  "workspaces": ["app"],
+  "workspaces": [
+    "app"
+  ],
   "scripts": {
     "dev": "npm run -w walrus-forms-app dev",
     "build:app": "npm run -w walrus-forms-app build",
     "build:contracts": "cd contracts && sui move build",
     "publish:contracts": "cd contracts && sui client publish --gas-budget 200000000",
-    "deploy:site": "site-builder publish ./app/dist --epochs 5"
+    "deploy:site": "site-builder publish ./app/dist --epochs 5",
+    "dev:sponsor": "node services/enoki-sponsor/server.mjs"
+  },
+  "devDependencies": {
+    "hyperframes": "^0.5.7"
   }
 }

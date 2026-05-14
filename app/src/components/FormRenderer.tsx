@@ -1,9 +1,8 @@
-import { useState } from "react";
-import { Star, Upload, Loader2, Check, Eye, Pencil } from "lucide-react";
+import { useRef, useState } from "react";
+import { Star, Upload, Loader2, Check, Bold, Italic, Underline, Strikethrough, Link as LinkIcon, ListOrdered, List, Quote, Code, Code2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input, Textarea, Label } from "@/components/ui/input";
-import { MarkdownView } from "@/components/MarkdownView";
 import { cn, truncateBlob } from "@/lib/utils";
 import { storeBlob } from "@/walrus/client";
 import type { FormField, FormSchema, SubmissionPayload, SubmissionValue } from "@/forms/types";
@@ -11,12 +10,22 @@ import type { FormField, FormSchema, SubmissionPayload, SubmissionValue } from "
 export interface FormRendererProps {
   schema: FormSchema;
   formId: string;
+  submitter?: string;
+  submitterRequired?: boolean;
+  footerNote?: string;
   onSubmit: (payload: SubmissionPayload, fileBlobIds: string[]) => Promise<void>;
 }
 
 type SubmitState = "idle" | "signing" | "submitting" | "done" | "error";
 
-export function FormRenderer({ schema, formId, onSubmit }: FormRendererProps) {
+export function FormRenderer({
+  schema,
+  formId,
+  submitter,
+  submitterRequired = false,
+  footerNote,
+  onSubmit,
+}: FormRendererProps) {
   const [values, setValues] = useState<Record<string, SubmissionValue>>({});
   const [state, setState] = useState<SubmitState>("idle");
   const [error, setError] = useState<string | null>(null);
@@ -25,15 +34,36 @@ export function FormRenderer({ schema, formId, onSubmit }: FormRendererProps) {
     setValues((v) => ({ ...v, [id]: value }));
   }
 
+  function submitAnotherResponse() {
+    setValues({});
+    setError(null);
+    setState("idle");
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
 
     for (const f of schema.fields) {
-      if (f.required && !values[f.id]) {
+      if (!f.required) continue;
+      const v = values[f.id];
+      // Treat as missing if undefined, empty string, empty array, or 0-star rating.
+      const missing =
+        v === undefined ||
+        (v.type === "text" && v.value.trim() === "") ||
+        (v.type === "url" && v.value.trim() === "") ||
+        (v.type === "dropdown" && v.value === "") ||
+        (v.type === "checkbox" && v.value.length === 0) ||
+        (v.type === "stars" && v.value <= 0);
+      if (missing) {
         setError(`Required: ${f.label}`);
         return;
       }
+    }
+
+    if (submitterRequired && !submitter) {
+      setError("Connect a wallet to submit this form.");
+      return;
     }
 
     setState("signing");
@@ -45,7 +75,7 @@ export function FormRenderer({ schema, formId, onSubmit }: FormRendererProps) {
 
       setState("submitting");
       await onSubmit(
-        { version: 1, formId, submittedAt: Date.now(), values },
+        { version: 1, formId, submitter, submittedAt: Date.now(), values },
         fileBlobIds,
       );
       setState("done");
@@ -58,10 +88,30 @@ export function FormRenderer({ schema, formId, onSubmit }: FormRendererProps) {
   const submitLabel = {
     idle: "Submit",
     signing: "Sign in wallet…",
-    submitting: "Storing on Walrus…",
+    submitting: "Submitting...",
     done: "Submitted",
     error: "Try again",
   }[state];
+
+  if (state === "done") {
+    return (
+      <div className="flex flex-col gap-6 p-6">
+        <div className="rounded-2xl border border-primary/25 bg-primary/10 px-5 py-6 text-center">
+          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-primary text-primary-foreground">
+            <Check className="h-5 w-5" />
+          </div>
+          <h2 className="mt-4 text-2xl font-semibold">Your response has been recorded.</h2>
+          <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-muted-foreground">
+            You can submit another response if you need to add more feedback.
+          </p>
+        </div>
+
+        <Button type="button" size="lg" variant="secondary" onClick={submitAnotherResponse}>
+          Submit another response
+        </Button>
+      </div>
+    );
+  }
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-6 p-6">
@@ -96,17 +146,22 @@ export function FormRenderer({ schema, formId, onSubmit }: FormRendererProps) {
         leftIcon={
           state === "signing" || state === "submitting" ? (
             <Loader2 className="h-4 w-4 animate-spin" />
-          ) : state === "done" ? (
-            <Check className="h-4 w-4" />
           ) : undefined
         }
-        variant={state === "done" ? "secondary" : "primary"}
+        variant="primary"
       >
         {submitLabel}
       </Button>
+      {footerNote && <p className="text-center text-xs text-muted-foreground">{footerNote}</p>}
     </form>
   );
 }
+
+type WrapAction =
+  | { kind: "wrap"; before: string; after: string; placeholder: string }
+  | { kind: "linePrefix"; prefix: string }
+  | { kind: "link" }
+  | { kind: "codeblock" };
 
 function RichTextField({
   field,
@@ -119,47 +174,102 @@ function RichTextField({
   value: string;
   onChange: (v: string) => void;
 }) {
-  const [mode, setMode] = useState<"write" | "preview">("write");
+  const taRef = useRef<HTMLTextAreaElement | null>(null);
+
+  function apply(action: WrapAction) {
+    const ta = taRef.current;
+    if (!ta) return;
+    const start = ta.selectionStart;
+    const end = ta.selectionEnd;
+    const selected = value.slice(start, end);
+    let nextValue = value;
+    let nextStart = start;
+    let nextEnd = end;
+
+    if (action.kind === "wrap") {
+      const inner = selected || action.placeholder;
+      nextValue = value.slice(0, start) + action.before + inner + action.after + value.slice(end);
+      nextStart = start + action.before.length;
+      nextEnd = nextStart + inner.length;
+    } else if (action.kind === "linePrefix") {
+      const lineStart = value.lastIndexOf("\n", start - 1) + 1;
+      const lineEnd = value.indexOf("\n", end);
+      const sliceEnd = lineEnd === -1 ? value.length : lineEnd;
+      const block = value.slice(lineStart, sliceEnd);
+      const prefixed = block
+        .split("\n")
+        .map((line, i) => {
+          const p = action.prefix === "1. " ? `${i + 1}. ` : action.prefix;
+          return line ? `${p}${line}` : p.trimEnd();
+        })
+        .join("\n");
+      nextValue = value.slice(0, lineStart) + prefixed + value.slice(sliceEnd);
+      nextStart = lineStart;
+      nextEnd = lineStart + prefixed.length;
+    } else if (action.kind === "link") {
+      const label = selected || "text";
+      const inserted = `[${label}](https://)`;
+      nextValue = value.slice(0, start) + inserted + value.slice(end);
+      nextStart = start + label.length + 3; // inside the URL
+      nextEnd = nextStart + 8;
+    } else if (action.kind === "codeblock") {
+      const inner = selected || "code";
+      const block = `\n\`\`\`\n${inner}\n\`\`\`\n`;
+      nextValue = value.slice(0, start) + block + value.slice(end);
+      nextStart = start + 5;
+      nextEnd = nextStart + inner.length;
+    }
+
+    onChange(nextValue);
+    requestAnimationFrame(() => {
+      const el = taRef.current;
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(nextStart, nextEnd);
+    });
+  }
+
+  const buttons: { icon: typeof Bold; title: string; action: WrapAction; sep?: boolean }[] = [
+    { icon: Bold, title: "Bold", action: { kind: "wrap", before: "**", after: "**", placeholder: "bold" } },
+    { icon: Italic, title: "Italic", action: { kind: "wrap", before: "*", after: "*", placeholder: "italic" } },
+    { icon: Underline, title: "Underline", action: { kind: "wrap", before: "<u>", after: "</u>", placeholder: "underline" } },
+    { icon: Strikethrough, title: "Strikethrough", action: { kind: "wrap", before: "~~", after: "~~", placeholder: "strike" } },
+    { icon: LinkIcon, title: "Link", action: { kind: "link" }, sep: true },
+    { icon: ListOrdered, title: "Numbered list", action: { kind: "linePrefix", prefix: "1. " } },
+    { icon: List, title: "Bulleted list", action: { kind: "linePrefix", prefix: "- " } },
+    { icon: Quote, title: "Quote", action: { kind: "linePrefix", prefix: "> " }, sep: true },
+    { icon: Code, title: "Inline code", action: { kind: "wrap", before: "`", after: "`", placeholder: "code" } },
+    { icon: Code2, title: "Code block", action: { kind: "codeblock" } },
+  ];
+
   return (
     <div className="flex flex-col gap-1.5">
-      <div className="flex items-center justify-between">
-        {labelEl}
-        <div className="flex items-center gap-1 p-0.5 rounded-md bg-background-soft border border-border text-[11px]">
-          <button
-            type="button"
-            onClick={() => setMode("write")}
-            className={cn(
-              "px-2 py-0.5 rounded inline-flex items-center gap-1 transition-colors",
-              mode === "write" ? "bg-background text-foreground" : "text-muted-foreground hover:text-foreground",
-            )}
-          >
-            <Pencil className="h-3 w-3" /> Write
-          </button>
-          <button
-            type="button"
-            onClick={() => setMode("preview")}
-            className={cn(
-              "px-2 py-0.5 rounded inline-flex items-center gap-1 transition-colors",
-              mode === "preview" ? "bg-background text-foreground" : "text-muted-foreground hover:text-foreground",
-            )}
-          >
-            <Eye className="h-3 w-3" /> Preview
-          </button>
+      {labelEl}
+      <div className="rounded-lg border border-border bg-background-soft overflow-hidden">
+        <div className="flex items-center gap-0.5 px-1.5 py-1 border-b border-border/60">
+          {buttons.map((b) => (
+            <span key={b.title} className="inline-flex items-center">
+              <button
+                type="button"
+                title={b.title}
+                onClick={() => apply(b.action)}
+                className="h-7 w-7 inline-flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-background transition-colors"
+              >
+                <b.icon className="h-3.5 w-3.5" />
+              </button>
+              {b.sep && <span className="h-4 w-px bg-border/60 mx-0.5" />}
+            </span>
+          ))}
         </div>
-      </div>
-      {mode === "write" ? (
         <Textarea
+          ref={taRef}
           rows={6}
-          placeholder={field.helpText ?? "Markdown supported"}
+          className="border-0 rounded-none bg-transparent focus:ring-0"
+          placeholder={field.helpText ?? ""}
           value={value}
           onChange={(e) => onChange(e.target.value)}
         />
-      ) : (
-        <MarkdownView
-          src={value}
-          className="min-h-[140px] rounded-lg border border-border bg-background-soft px-3 py-2 text-sm"
-        />
-      )}
+      </div>
     </div>
   );
 }
@@ -309,9 +419,13 @@ function FieldInput({
               onChange={async (e) => {
                 const file = e.target.files?.[0];
                 if (!file) return;
-                const buf = new Uint8Array(await file.arrayBuffer());
-                const { blobId } = await storeBlob(buf);
-                onChange({ type: "file", blobId, mimeType: file.type, encrypted: false });
+                try {
+                  const buf = new Uint8Array(await file.arrayBuffer());
+                  const { blobId } = await storeBlob(buf);
+                  onChange({ type: "file", blobId, mimeType: file.type, encrypted: false });
+                } catch (err) {
+                  alert(`Upload failed: ${err instanceof Error ? err.message : String(err)}`);
+                }
               }}
             />
             <div

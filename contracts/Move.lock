@@ -70,6 +70,6 @@ deps = { Sui = "Sui" }
 
 [env.testnet]
 chain-id = "4c78adac"
-original-published-id = "0x7c4f5408443093e40a836042d0ac4647c05a47d3ff94d03cbc895aa7c2b12455"
-latest-published-id = "0x7c4f5408443093e40a836042d0ac4647c05a47d3ff94d03cbc895aa7c2b12455"
+original-published-id = "0x2f9017bdbd1424ae757036c4c52f9d7d053d091a823aac7d1575e0a06ea36211"
+latest-published-id = "0x2f9017bdbd1424ae757036c4c52f9d7d053d091a823aac7d1575e0a06ea36211"
 published-version = "1"

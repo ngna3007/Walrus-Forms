@@ -34,9 +34,10 @@ export const FORM_TEMPLATES: FormTemplate[] = [
       title: "Bug Bounty Report",
       description: "Encrypted intake for reproducible vulnerability or product bug reports.",
       bounty: { enabled: true, tokenSymbol: "WAL", payoutAmount: "0" },
+      requireWalletId: true,
       fields: [
         { id: "summary", type: "shortText", label: "Summary", required: true },
-        { id: "impact", type: "dropdown", label: "Impact", required: true, options: ["Low", "Medium", "High", "Critical"] },
+        { id: "description", type: "longText", label: "Bug description", required: true },
         { id: "repro", type: "richText", label: "Proof of concept", required: true },
         { id: "attachment", type: "screenshot", label: "Evidence", required: false },
       ],

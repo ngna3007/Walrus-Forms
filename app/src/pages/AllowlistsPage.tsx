@@ -1,46 +1,44 @@
-import { useState } from "react";
-import { Plus, Users2, Trash2, Save } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Plus, Users2, Trash2 } from "lucide-react";
 
 import { AppShell, PageHeader } from "@/components/layout/AppShell";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input, Label } from "@/components/ui/input";
 import { Badge, StatusDot } from "@/components/ui/badge";
+import { readAllowlists, writeAllowlists, type SavedAllowlist } from "@/forms/allowlists";
+import { ConnectGate } from "@/components/ConnectGate";
 import { truncateAddr } from "@/lib/utils";
 
-interface Allowlist {
-  id: string;
-  name: string;
-  members: string[];
-}
-
-const DEMO: Allowlist[] = [
-  {
-    id: "0xa11ow1",
-    name: "Bug triagers",
-    members: [
-      "0x9F3aA1ce4982FE1abf3829FFbC32d5Dba2Ee84cd",
-      "0x2Aa991Be4F9c0C9Ae62D3Fb71Ec43aE71b3CE112",
-    ],
-  },
-  {
-    id: "0xa11ow2",
-    name: "Grants reviewers",
-    members: ["0x4Fc91dEaA02D5b90B3F2Ab63FE5eA3A09b1aBcDe"],
-  },
-];
-
 export function AllowlistsPage() {
-  const [lists, setLists] = useState<Allowlist[]>(DEMO);
-  const [activeId, setActiveId] = useState<string>(DEMO[0].id);
+  const [lists, setLists] = useState<SavedAllowlist[]>([]);
+  const [activeId, setActiveId] = useState<string>("");
   const [draft, setDraft] = useState("");
 
   const active = lists.find((l) => l.id === activeId);
 
+  useEffect(() => {
+    let cancelled = false;
+    readAllowlists().then((stored) => {
+      if (cancelled) return;
+      setLists(stored);
+      setActiveId(stored[0]?.id ?? "");
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  function commit(next: SavedAllowlist[], nextActiveId = activeId) {
+    setLists(next);
+    setActiveId(nextActiveId);
+    void writeAllowlists(next);
+  }
+
   function addMember() {
     if (!active || !draft.trim()) return;
-    setLists((prev) =>
-      prev.map((l) =>
+    commit(
+      lists.map((l) =>
         l.id === active.id ? { ...l, members: [...new Set([...l.members, draft.trim()])] } : l,
       ),
     );
@@ -49,16 +47,20 @@ export function AllowlistsPage() {
 
   function removeMember(addr: string) {
     if (!active) return;
-    setLists((prev) =>
-      prev.map((l) => (l.id === active.id ? { ...l, members: l.members.filter((m) => m !== addr) } : l)),
-    );
+    commit(lists.map((l) => (l.id === active.id ? { ...l, members: l.members.filter((m) => m !== addr) } : l)));
   }
 
   function createList() {
-    const id = `0xa11${(lists.length + 1).toString(16).padStart(3, "0")}`;
-    const next: Allowlist = { id, name: `New list ${lists.length + 1}`, members: [] };
-    setLists((prev) => [...prev, next]);
-    setActiveId(id);
+    const id = crypto.randomUUID();
+    const next: SavedAllowlist = { id, name: "Untitled allowlist", members: [] };
+    commit([...lists, next], id);
+  }
+
+  function deleteActiveList() {
+    if (!active) return;
+    if (!window.confirm(`Delete allowlist "${active.name}"? This only removes the local entry; on-chain allowlists are unaffected.`)) return;
+    const next = lists.filter((l) => l.id !== active.id);
+    commit(next, next[0]?.id ?? "");
   }
 
   return (
@@ -74,6 +76,7 @@ export function AllowlistsPage() {
         title="Allowlists"
         description="Manage Sui addresses that can decrypt allowlist-gated submissions."
       />
+      <ConnectGate message="Connect a wallet to manage allowlists.">
 
       <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-6">
         <Card className="p-3 h-fit">
@@ -114,15 +117,23 @@ export function AllowlistsPage() {
                     className="mt-1.5 text-xl font-serif italic h-auto py-2 bg-transparent border-0 border-b border-border rounded-none focus:ring-0 focus:border-primary"
                     value={active.name}
                     onChange={(e) =>
-                      setLists((prev) =>
-                        prev.map((l) => (l.id === active.id ? { ...l, name: e.target.value } : l)),
-                      )
+                      commit(lists.map((l) => (l.id === active.id ? { ...l, name: e.target.value } : l)))
                     }
                   />
                 </div>
-                <Badge tone="secondary" icon={<StatusDot tone="secondary" />}>
-                  {active.members.length} members
-                </Badge>
+                <div className="flex items-center gap-2">
+                  <Badge tone="secondary" icon={<StatusDot tone="secondary" />}>
+                    {active.members.length} members
+                  </Badge>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    leftIcon={<Trash2 className="h-3.5 w-3.5" />}
+                    onClick={deleteActiveList}
+                  >
+                    Delete list
+                  </Button>
+                </div>
               </div>
 
               <Label>Add address</Label>
@@ -164,21 +175,16 @@ export function AllowlistsPage() {
                   </ul>
                 )}
               </div>
-
-              <div className="mt-6 flex justify-end">
-                <Button variant="primary" leftIcon={<Save className="h-4 w-4" />}>
-                  Save changes
-                </Button>
-              </div>
             </>
           ) : (
             <div className="text-center py-12 text-muted-foreground">
               <Users2 className="h-10 w-10 mx-auto mb-3 opacity-50" />
-              <p>Pick or create an allowlist to manage members.</p>
+              <p>Create an allowlist to manage decrypt access.</p>
             </div>
           )}
         </Card>
       </div>
+      </ConnectGate>
     </AppShell>
   );
 }

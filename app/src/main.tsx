@@ -15,6 +15,7 @@ import { RouterProvider } from "react-router-dom";
 import { router } from "./router";
 import { NETWORK } from "./config";
 import { applyTheme, getStoredTheme } from "./lib/theme";
+import { RegisterEnokiWallets } from "./enoki/RegisterEnokiWallets";
 
 applyTheme(getStoredTheme());
 
@@ -29,6 +30,7 @@ createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
       <SuiClientProvider networks={networkConfig} defaultNetwork={NETWORK}>
+        <RegisterEnokiWallets />
         <WalletProvider autoConnect>
           <RouterProvider router={router} />
         </WalletProvider>

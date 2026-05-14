@@ -1,75 +1,94 @@
-/// Submitter reputation records.
+/// Submitter reputation as soulbound submission receipts.
 ///
-/// Indexers consume the events to build search/filter facets while the shared
-/// object provides an on-chain score that can be checked by other contracts.
+/// Each time the form owner resolves a submission (and the submitter is not the
+/// owner themselves), this module mints a `SubmissionReceipt` owned by the
+/// submitter. The receipt has `key` only — no `store` — so it cannot be
+/// transferred via `sui::transfer::public_transfer`, wrapped in another object,
+/// or stored as a dynamic field. This makes the receipts soulbound: portable
+/// across dApps via `getOwnedObjects`, immutable, and tied to a single wallet.
+///
+/// Cross-dApp consumers query:
+///   client.getOwnedObjects({
+///     owner,
+///     filter: { StructType: `${PKG}::reputation::SubmissionReceipt` },
+///   })
+/// and aggregate by `severity` to derive a portable reputation score.
 module walrus_forms::reputation;
 
+use sui::clock::{Self, Clock};
 use sui::event;
 
-const ENotOwner: u64 = 1;
+use walrus_forms::form_registry::{Self, Form};
+use walrus_forms::submission::{Self, Submission};
 
-public struct SubmitterReputation has key {
+const ENotFormOwner: u64 = 1;
+const ESelfMint: u64 = 2;
+const EFormMismatch: u64 = 3;
+
+/// Soulbound receipt. `key` only — no `store` ability so callers cannot use
+/// `transfer::public_transfer`. The mint function calls `transfer::transfer`
+/// from inside this module, which is the only legal way to move the receipt.
+public struct SubmissionReceipt has key {
     id: UID,
-    owner: address,
+    form_id: ID,
+    submission_id: ID,
     submitter: address,
-    submissions: u64,
-    resolved: u64,
-    score: u64,
+    severity: u8,
+    resolved_at_ms: u64,
 }
 
-public struct ReputationChanged has copy, drop {
-    reputation_id: ID,
+public struct ReceiptMinted has copy, drop {
+    receipt_id: ID,
+    form_id: ID,
+    submission_id: ID,
     submitter: address,
-    submissions: u64,
-    resolved: u64,
-    score: u64,
+    severity: u8,
 }
 
-public fun create(submitter: address, ctx: &mut TxContext) {
-    let reputation = SubmitterReputation {
+/// Form owner mints a permanent soulbound receipt to the submitter.
+///
+/// Aborts if:
+///   - caller is not the form owner
+///   - submission belongs to a different form
+///   - submitter == form owner (anti-self-credit gate)
+public fun mint_receipt(
+    form: &Form,
+    submission: &Submission,
+    severity: u8,
+    clock: &Clock,
+    ctx: &mut TxContext,
+) {
+    assert!(form_registry::owner(form) == tx_context::sender(ctx), ENotFormOwner);
+    assert!(submission::form_id(submission) == object::id(form), EFormMismatch);
+
+    let submitter = submission::submitter(submission);
+    assert!(submitter != form_registry::owner(form), ESelfMint);
+
+    let receipt = SubmissionReceipt {
         id: object::new(ctx),
-        owner: tx_context::sender(ctx),
+        form_id: object::id(form),
+        submission_id: object::id(submission),
         submitter,
-        submissions: 0,
-        resolved: 0,
-        score: 0,
+        severity,
+        resolved_at_ms: clock::timestamp_ms(clock),
     };
-    emit_change(&reputation);
-    transfer::share_object(reputation);
-}
 
-public fun record_submission(rep: &mut SubmitterReputation, ctx: &TxContext) {
-    assert!(rep.owner == tx_context::sender(ctx), ENotOwner);
-    rep.submissions = rep.submissions + 1;
-    rep.score = calculate_score(rep.submissions, rep.resolved);
-    emit_change(rep);
-}
-
-public fun record_resolution(rep: &mut SubmitterReputation, ctx: &TxContext) {
-    assert!(rep.owner == tx_context::sender(ctx), ENotOwner);
-    rep.resolved = rep.resolved + 1;
-    rep.score = calculate_score(rep.submissions, rep.resolved);
-    emit_change(rep);
-}
-
-fun calculate_score(submissions: u64, resolved: u64): u64 {
-    let base = submissions * 5;
-    let quality = resolved * 20;
-    let score = base + quality;
-    if (score > 100) 100 else score
-}
-
-fun emit_change(rep: &SubmitterReputation) {
-    event::emit(ReputationChanged {
-        reputation_id: object::id(rep),
-        submitter: rep.submitter,
-        submissions: rep.submissions,
-        resolved: rep.resolved,
-        score: rep.score,
+    event::emit(ReceiptMinted {
+        receipt_id: object::id(&receipt),
+        form_id: object::id(form),
+        submission_id: object::id(submission),
+        submitter,
+        severity,
     });
+
+    // `transfer::transfer` requires the type to be defined in this module.
+    // Combined with the missing `store` ability, this makes the receipt
+    // soulbound: only this module can ever move it, and it never does.
+    transfer::transfer(receipt, submitter);
 }
 
-public fun submitter(rep: &SubmitterReputation): address { rep.submitter }
-public fun score(rep: &SubmitterReputation): u64 { rep.score }
-public fun submissions(rep: &SubmitterReputation): u64 { rep.submissions }
-public fun resolved(rep: &SubmitterReputation): u64 { rep.resolved }
+public fun submitter(r: &SubmissionReceipt): address { r.submitter }
+public fun severity(r: &SubmissionReceipt): u8 { r.severity }
+public fun form_id(r: &SubmissionReceipt): ID { r.form_id }
+public fun submission_id(r: &SubmissionReceipt): ID { r.submission_id }
+public fun resolved_at_ms(r: &SubmissionReceipt): u64 { r.resolved_at_ms }

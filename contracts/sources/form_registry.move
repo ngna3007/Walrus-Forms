@@ -3,6 +3,7 @@ module walrus_forms::form_registry;
 
 use std::string::String;
 use sui::event;
+use walrus_forms::seal_policies::{Self, Allowlist};
 
 const EUnauthorized: u64 = 1;
 
@@ -32,6 +33,11 @@ public struct FormCreated has copy, drop {
     policy_type: u8,
 }
 
+public struct FormUpdated has copy, drop {
+    form_id: ID,
+    schema_blob_id: String,
+}
+
 public struct FormClosed has copy, drop {
     form_id: ID,
 }
@@ -44,6 +50,34 @@ public fun create_form(
     unlock_time_ms: u64,
     ctx: &mut TxContext,
 ) {
+    let form = build_form(title, schema_blob_id, policy_type, policy_object_id, unlock_time_ms, ctx);
+    transfer::share_object(form);
+}
+
+/// One-shot publish: create the Allowlist and the Form in the SAME PTB so the
+/// user only signs once. Takes the Allowlist by value (constructed earlier in
+/// the same PTB via `seal_policies::new_allowlist`), reads its object id for
+/// `policy_object_id`, then shares both objects.
+public fun create_form_with_allowlist(
+    title: String,
+    schema_blob_id: String,
+    list: Allowlist,
+    ctx: &mut TxContext,
+) {
+    let policy_object_id = seal_policies::allowlist_id_bytes(&list);
+    let form = build_form(title, schema_blob_id, POLICY_ALLOWLIST, policy_object_id, 0, ctx);
+    transfer::share_object(form);
+    seal_policies::share_allowlist(list);
+}
+
+fun build_form(
+    title: String,
+    schema_blob_id: String,
+    policy_type: u8,
+    policy_object_id: vector<u8>,
+    unlock_time_ms: u64,
+    ctx: &mut TxContext,
+): Form {
     let form = Form {
         id: object::new(ctx),
         owner: tx_context::sender(ctx),
@@ -63,13 +97,34 @@ public fun create_form(
         policy_type,
     });
 
-    transfer::share_object(form);
+    form
 }
 
 public fun close_form(form: &mut Form, ctx: &TxContext) {
     assert!(form.owner == tx_context::sender(ctx), EUnauthorized);
     form.open = false;
     event::emit(FormClosed { form_id: object::id(form) });
+}
+
+/// In-place schema edit. Owner only.
+///
+/// Replaces the title and Walrus schema blob id of an existing shared Form,
+/// leaving the form's object id, allowlist, submissions, and submission count
+/// untouched. Cheap path for edits: no new Form object on Sui, and Walrus
+/// deduplicates the schema blob if the JSON didn't actually change.
+public fun update_form(
+    form: &mut Form,
+    new_title: String,
+    new_schema_blob_id: String,
+    ctx: &TxContext,
+) {
+    assert!(form.owner == tx_context::sender(ctx), EUnauthorized);
+    form.title = new_title;
+    form.schema_blob_id = new_schema_blob_id;
+    event::emit(FormUpdated {
+        form_id: object::id(form),
+        schema_blob_id: new_schema_blob_id,
+    });
 }
 
 public(package) fun increment_submission_count(form: &mut Form) {

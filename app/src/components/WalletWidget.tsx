@@ -4,6 +4,8 @@ import { Wallet, Copy, LogOut, ExternalLink, Check } from "lucide-react";
 
 import { StatusDot } from "@/components/ui/badge";
 import { cn, copyText, truncateAddr } from "@/lib/utils";
+import { setCurrentOwner } from "@/lib/ownerKey";
+import { NETWORK } from "@/config";
 
 export function WalletWidget() {
   const account = useCurrentAccount();
@@ -12,6 +14,10 @@ export function WalletWidget() {
   const [copied, setCopied] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setCurrentOwner(account?.address ?? null);
+  }, [account?.address]);
 
   useEffect(() => {
     if (!open) return;
@@ -102,7 +108,7 @@ export function WalletWidget() {
           </button>
 
           <a
-            href={`https://suiscan.xyz/testnet/account/${account.address}`}
+            href={`https://suiscan.xyz/${NETWORK}/account/${account.address}`}
             target="_blank"
             rel="noopener noreferrer"
             className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm hover:bg-background-soft transition-colors"

@@ -9,6 +9,7 @@ import {
   Plus,
   Menu,
   X,
+  LayoutTemplate,
 } from "lucide-react";
 
 import { Logo } from "@/components/Logo";
@@ -19,11 +20,13 @@ import { cn } from "@/lib/utils";
 
 const NAV = [
   { to: "/dashboard", label: "Forms", icon: FileText, end: true },
+  { to: "/dashboard/templates", label: "Templates", icon: LayoutTemplate },
   { to: "/dashboard/allowlists", label: "Allowlists", icon: Users2 },
   { to: "/dashboard/settings", label: "Settings", icon: Settings },
 ];
 
 const TITLES: { match: RegExp; title: string; crumb?: string }[] = [
+  { match: /^\/dashboard\/templates/, title: "Templates", crumb: "Forms / Templates" },
   { match: /^\/dashboard\/allowlists/, title: "Allowlists", crumb: "Forms / Allowlists" },
   { match: /^\/dashboard\/settings/, title: "Settings", crumb: "Forms / Settings" },
   { match: /^\/dashboard$/, title: "Forms", crumb: "Forms" },
