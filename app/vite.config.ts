@@ -11,4 +11,11 @@ export default defineConfig({
     },
   },
   server: { port: 5173 },
+  build: {
+    // Emit to repo-root `dist/` so Vercel (and other hosts) pick up the build
+    // from the project root without extra config. Walrus Sites still works
+    // because we point site-builder at `dist` instead of `app/dist`.
+    outDir: "../dist",
+    emptyOutDir: true,
+  },
 });
