@@ -1,5 +1,5 @@
 import {
-  WALRUS_AGGREGATOR_URL,
+  NETWORK,
   WALRUS_DEFAULT_EPOCHS,
   WALRUS_PUBLISHER_URL,
   WALRUS_USE_SDK,
@@ -15,12 +15,68 @@ export type StoreResult = {
 
 export interface StoreOptions {
   epochs?: number;
-  /** Required when WALRUS_USE_SDK is true. Pass through from `useSignAndExecuteTransaction`. */
   signAndExecute?: SignAndExecute;
-  /** Owner address; required when WALRUS_USE_SDK is true. */
   owner?: string;
-  /** Optional human-readable identifier when using the SDK / WalrusFile path. */
   identifier?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Aggregator pool — try each in order, first success wins.
+// Blobs are content-addressed so any aggregator returns identical bytes.
+// ---------------------------------------------------------------------------
+
+const TESTNET_AGGREGATORS = [
+  "https://aggregator.walrus-testnet.walrus.space",
+  "https://wal-aggregator-testnet.staketab.org",
+  "https://walrus-testnet-aggregator.nodes.guru",
+];
+const MAINNET_AGGREGATORS = [
+  "https://aggregator.walrus.space",
+  "https://wal-aggregator-mainnet.staketab.org",
+];
+
+function aggregators(): string[] {
+  return NETWORK === "mainnet" ? MAINNET_AGGREGATORS : TESTNET_AGGREGATORS;
+}
+
+// ---------------------------------------------------------------------------
+// localStorage read cache — blobs are immutable (content-addressed), cached forever.
+// ---------------------------------------------------------------------------
+
+const CACHE_PREFIX = "wf:v1:";
+
+function fromCache(blobId: string): Uint8Array | null {
+  try {
+    const raw = localStorage.getItem(CACHE_PREFIX + blobId);
+    if (!raw) return null;
+    const bin = atob(raw);
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  } catch {
+    return null;
+  }
+}
+
+function toCache(blobId: string, bytes: Uint8Array): void {
+  try {
+    let s = "";
+    for (const b of bytes) s += String.fromCharCode(b);
+    localStorage.setItem(CACHE_PREFIX + blobId, btoa(s));
+  } catch {
+    // Quota exceeded — evict old wf: entries then retry once.
+    try {
+      for (let i = localStorage.length - 1; i >= 0; i--) {
+        const k = localStorage.key(i);
+        if (k?.startsWith(CACHE_PREFIX)) localStorage.removeItem(k);
+      }
+      let s = "";
+      for (const b of bytes) s += String.fromCharCode(b);
+      localStorage.setItem(CACHE_PREFIX + blobId, btoa(s));
+    } catch {
+      // give up
+    }
+  }
 }
 
 /**
@@ -28,8 +84,7 @@ export interface StoreOptions {
  *
  * Two paths:
  *   - SDK + wallet (`WALRUS_USE_SDK=true`): user pays their own storage via wallet.
- *     Uses `writeFilesFlow` (`register` + `certify` wallet popups).
- *   - Publisher HTTP (default): publisher pays for storage; faster to demo, no wallet popups.
+ *   - Publisher HTTP (default): publisher pays; no wallet popups.
  */
 export async function storeBlob(data: Uint8Array, opts: StoreOptions = {}): Promise<StoreResult> {
   const epochs = opts.epochs ?? WALRUS_DEFAULT_EPOCHS;
@@ -82,20 +137,42 @@ async function storeBlobViaPublisher(data: Uint8Array, epochs: number): Promise<
 }
 
 /**
- * Read raw blob bytes. Defaults to the aggregator (fast, ~1 request) and falls back to
- * the SDK reader on failure.
+ * Read raw blob bytes.
+ *
+ * Order: localStorage cache → aggregator pool (tries each in turn) → SDK WASM fallback.
+ * Cache hit = instant. Aggregator hit = ~200ms. SDK fallback = ~5-10s cold start.
  */
 export async function readBlob(blobId: string): Promise<Uint8Array> {
-  const url = `${WALRUS_AGGREGATOR_URL}/v1/blobs/${blobId}`;
-  try {
-    const resp = await fetch(url);
-    if (resp.ok) {
-      return new Uint8Array(await resp.arrayBuffer());
+  const cached = fromCache(blobId);
+  if (cached) return cached;
+
+  let lastErr: unknown = null;
+  for (const base of aggregators()) {
+    try {
+      const resp = await fetch(`${base}/v1/blobs/${blobId}`);
+      if (resp.ok) {
+        const bytes = new Uint8Array(await resp.arrayBuffer());
+        toCache(blobId, bytes);
+        return bytes;
+      }
+      lastErr = new Error(`${base} HTTP ${resp.status}`);
+    } catch (e) {
+      lastErr = e;
     }
-  } catch {
-    // fall through to SDK read
   }
-  return readBlobViaSdk(blobId);
+
+  // WASM SDK fallback — slow but reliable.
+  try {
+    const bytes = await readBlobViaSdk(blobId);
+    toCache(blobId, bytes);
+    return bytes;
+  } catch (e) {
+    throw new Error(
+      `All aggregators failed for ${blobId}: ${
+        lastErr instanceof Error ? lastErr.message : String(lastErr)
+      }. SDK: ${e instanceof Error ? e.message : String(e)}`,
+    );
+  }
 }
 
 export async function readJson<T>(blobId: string): Promise<T> {
