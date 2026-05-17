@@ -7,6 +7,21 @@ export function Hero() {
       <div className="pointer-events-none absolute inset-0 hero-gradient-bg grain" />
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-background/0 via-background/0 to-background" />
 
+      {/* Walrus decorations — hidden on mobile, show from lg */}
+      <img
+        src="/walrus-deco1.png"
+        alt=""
+        aria-hidden="true"
+        className="pointer-events-none select-none absolute left-0 bottom-10 w-56 xl:w-72 opacity-80 drop-shadow-2xl hidden lg:block"
+        style={{ transform: "scaleX(-1)" }}
+      />
+      <img
+        src="/walrus-deco2.png"
+        alt=""
+        aria-hidden="true"
+        className="pointer-events-none select-none absolute right-0 bottom-6 w-52 xl:w-64 opacity-80 drop-shadow-2xl hidden lg:block"
+      />
+
       <div className="relative mx-auto flex max-w-5xl flex-col items-center px-4 text-center sm:px-6 lg:px-8 z-10">
         <div className="animate-fade-rise pill mb-8 border-primary/30 bg-primary/10 text-primary">
           <span className="h-1.5 w-1.5 rounded-full bg-primary" />

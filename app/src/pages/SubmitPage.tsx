@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { AlertCircle, Lock, ShieldCheck, Wallet, Zap } from "lucide-react";
+import { AlertCircle, Lock, ShieldCheck, Zap } from "lucide-react";
 import {
   ConnectButton,
   useCurrentAccount,
+  useDisconnectWallet,
   useSignAndExecuteTransaction,
   useSignTransaction,
   useSuiClient,
@@ -24,9 +25,7 @@ import { addSubscription } from "@/forms/subscriptions";
 import type { FormSchema, SubmissionPayload } from "@/forms/types";
 import { readJson } from "@/walrus/client";
 import { applyTheme, getStoredTheme } from "@/lib/theme";
-import { truncateAddr } from "@/lib/utils";
 import { ENOKI_SPONSORED_SUBMISSIONS, ENOKI_SPONSOR_CONFIGURED, PACKAGE_ID } from "@/config";
-import { ZkLoginPrompt } from "@/enoki/ZkLoginPrompt";
 import {
   createSponsoredSubmissionTransaction,
   executeSponsoredSubmissionTransaction,
@@ -58,6 +57,7 @@ function getPolicyObjectId(policy: FormPolicy): string | undefined {
 export function SubmitPage() {
   const { formId } = useParams<{ formId: string }>();
   const account = useCurrentAccount();
+  const { mutate: disconnect } = useDisconnectWallet();
   const client = useSuiClient();
   const { mutateAsync: signAndExecute } = useSignAndExecuteTransaction<SuiTransactionBlockResponse>({
     execute: ({ bytes, signature }) =>
@@ -274,19 +274,30 @@ export function SubmitPage() {
               Sponsored gas
             </Badge>
           )}
-          <ConnectButton />
         </div>
       </header>
 
       <main className="px-4 sm:px-6 pb-16">
         <div className="max-w-2xl mx-auto">
-          <Card className="liquid-glass-strong rounded-3xl p-8 sm:p-10">
-            <div className="flex items-center gap-2 mb-6">
-              <ShieldCheck className="h-4 w-4 text-secondary-strong dark:text-secondary" />
-              <span className="text-xs uppercase tracking-widest text-muted-foreground">
-                Form {formId ? `#${formId.slice(0, 10)}` : ""}
-              </span>
+          <Card className="liquid-glass-strong rounded-3xl overflow-hidden p-0">
+            {/* Cover banner */}
+            <div className="relative h-40 w-full overflow-hidden bg-gradient-to-br from-violet-600 via-purple-600 to-cyan-500">
+              <img
+                src="/walrus-builder.png"
+                alt=""
+                aria-hidden="true"
+                className="absolute inset-0 w-full h-full object-cover object-top mix-blend-luminosity opacity-60 pointer-events-none select-none"
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-black/30 to-transparent" />
+              <div className="absolute bottom-4 left-5 flex items-center gap-2">
+                <ShieldCheck className="h-4 w-4 text-white/80" />
+                <span className="text-xs uppercase tracking-widest text-white/70">
+                  Form {formId ? `#${formId.slice(0, 10)}` : ""}
+                </span>
+              </div>
             </div>
+
+            <div className="p-8 sm:p-10">
 
             {error && (
               <div className="mb-6 flex items-start gap-2 rounded-lg bg-destructive/10 border border-destructive/30 px-3 py-2 text-sm text-destructive">
@@ -310,42 +321,18 @@ export function SubmitPage() {
               </div>
             )}
 
-            {schema && formMeta?.open !== false && !account?.address && (
-              <div className="rounded-2xl border border-border bg-background-soft px-5 py-6 text-center">
-                <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary">
-                  <Wallet className="h-5 w-5" />
-                </div>
-                <h2 className="mt-4 text-xl font-semibold">Connect wallet to submit</h2>
-                <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-muted-foreground">
-                  Use zkLogin or a Sui wallet. Walrus Forms sponsors the Sui transaction when the Enoki sponsor service is running.
-                </p>
-                <div className="mt-5 grid gap-3">
-                  <ZkLoginPrompt />
-                  <ConnectButton />
-                </div>
-              </div>
+            {schema && formMeta?.open !== false && (
+              <FormRenderer
+                schema={schema}
+                formId={formId ?? ""}
+                submitter={account?.address}
+                connectPrompt={!account?.address ? <ConnectButton /> : undefined}
+                onDisconnect={account?.address ? () => disconnect() : undefined}
+                footerNote={sponsorEnabled ? "Submit transaction is sponsored using Enoki" : undefined}
+                onSubmit={handleSubmit}
+              />
             )}
-
-            {schema && formMeta?.open !== false && account?.address && (
-              <div className="space-y-5">
-                <div className="rounded-xl border border-border bg-background-soft px-4 py-3 text-sm">
-                  <div className="text-xs uppercase tracking-widest text-muted-foreground">Submitting as</div>
-                  <div className="mt-1 font-mono text-foreground">
-                    {truncateAddr(account.address, 10, 6)}
-                  </div>
-                </div>
-                <FormRenderer
-                  schema={schema}
-                  formId={formId ?? ""}
-                  submitter={account?.address}
-                  submitterRequired
-                  footerNote={
-                  sponsorEnabled ? "Submit transaction is sponsored using Enoki" : undefined
-                  }
-                  onSubmit={handleSubmit}
-                />
-              </div>
-            )}
+            </div>{/* /inner padding */}
           </Card>
         </div>
       </main>

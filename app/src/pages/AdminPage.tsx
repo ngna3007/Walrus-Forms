@@ -866,6 +866,8 @@ export function AdminPage() {
         );
       })()}
 
+      <SubmissionMetrics rows={rows} />
+
       <Card className="p-0 overflow-hidden">
         <div className="grid grid-cols-[1.4fr_1fr_1fr_2fr_180px] text-[11px] uppercase tracking-widest text-muted-foreground/80 px-6 py-3 border-b border-border/60">
           <div>Submitter</div>
@@ -1794,5 +1796,159 @@ function eventIdString(value: unknown): string | null {
 
 function isUsableObjectId(value: string): boolean {
   return isObjectId(value) && !/^0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff$/i.test(value);
+}
+
+// ─── Submission metrics panel ──────────────────────────────────────────────
+
+const STATUS_COLORS = [
+  "bg-slate-400 dark:bg-slate-500",        // Open
+  "bg-indigo-500 dark:bg-indigo-400",      // Triaged
+  "bg-violet-500 dark:bg-violet-400",      // In Progress
+  "bg-emerald-500 dark:bg-emerald-400",    // Resolved
+];
+
+const SEVERITY_COLORS = [
+  "bg-green-500",   // Low
+  "bg-yellow-400",  // Medium
+  "bg-orange-500",  // High
+  "bg-red-500",     // Critical
+];
+
+function SubmissionMetrics({ rows }: { rows: Row[] }) {
+  if (rows.length === 0) return null;
+
+  const total = rows.length;
+  const weekAgo = Date.now() - 7 * 86_400_000;
+  const weekCount = rows.filter((r) => r.submittedAtMs >= weekAgo).length;
+  const openCount = rows.filter((r) => r.status === 0).length;
+  const resolvedCount = rows.filter((r) => r.status === 3).length;
+  const resolveRate = Math.round((resolvedCount / total) * 100);
+
+  // Status counts
+  const statusCounts = STATUS.map((_, i) => rows.filter((r) => r.status === i).length);
+
+  // Activity: daily buckets for last 14 days
+  const DAY_MS = 86_400_000;
+  const buckets: number[] = Array(14).fill(0);
+  const now = Date.now();
+  for (const r of rows) {
+    const daysAgo = Math.floor((now - r.submittedAtMs) / DAY_MS);
+    if (daysAgo >= 0 && daysAgo < 14) buckets[13 - daysAgo]++;
+  }
+  const maxBucket = Math.max(...buckets, 1);
+
+  // Severity breakdown (only for resolved rows with resolvedSeverity)
+  const severityCounts = [0, 1, 2, 3].map(
+    (i) => rows.filter((r) => r.status === 3 && r.resolvedSeverity === i).length,
+  );
+  const hasSeverity = severityCounts.some((c) => c > 0);
+
+  return (
+    <div className="mb-5 flex flex-col gap-4">
+      {/* ── Stat cards ── */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {[
+          { label: "Total", value: total, sub: "submissions" },
+          { label: "Open", value: openCount, sub: "awaiting review" },
+          { label: "Resolved", value: resolvedCount, sub: `${resolveRate}% resolution rate` },
+          { label: "This week", value: weekCount, sub: "last 7 days" },
+        ].map(({ label, value, sub }) => (
+          <div
+            key={label}
+            className="rounded-xl border border-border/60 bg-background px-4 py-3"
+          >
+            <p className="text-[10px] uppercase tracking-widest text-muted-foreground/70">{label}</p>
+            <p className="mt-1 text-2xl font-semibold tabular-nums">{value}</p>
+            <p className="mt-0.5 text-[11px] text-muted-foreground">{sub}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {/* ── Status distribution ── */}
+        <div className="rounded-xl border border-border/60 bg-background px-4 py-3">
+          <p className="text-[10px] uppercase tracking-widest text-muted-foreground/70 mb-3">
+            Status breakdown
+          </p>
+          {/* Stacked bar */}
+          <div className="flex h-3 rounded-full overflow-hidden gap-px bg-border/30">
+            {statusCounts.map((count, i) =>
+              count > 0 ? (
+                <div
+                  key={i}
+                  className={cn("transition-all", STATUS_COLORS[i])}
+                  style={{ width: `${(count / total) * 100}%` }}
+                  title={`${STATUS[i]}: ${count}`}
+                />
+              ) : null,
+            )}
+          </div>
+          {/* Legend */}
+          <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5">
+            {STATUS.map((label, i) => (
+              <div key={i} className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                <span className={cn("h-2 w-2 rounded-full shrink-0", STATUS_COLORS[i])} />
+                {label}
+                <span className="font-medium text-foreground">{statusCounts[i]}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* ── Activity chart ── */}
+        <div className="rounded-xl border border-border/60 bg-background px-4 py-3">
+          <p className="text-[10px] uppercase tracking-widest text-muted-foreground/70 mb-3">
+            Activity · last 14 days
+          </p>
+          <div className="flex items-end gap-px h-12">
+            {buckets.map((count, i) => (
+              <div
+                key={i}
+                className="flex-1 flex flex-col justify-end group relative"
+                title={`${count} submission${count === 1 ? "" : "s"}`}
+              >
+                <div
+                  className="rounded-sm bg-primary/50 group-hover:bg-primary transition-colors"
+                  style={{ height: `${Math.max(count > 0 ? 8 : 2, Math.round((count / maxBucket) * 48))}px` }}
+                />
+                {/* tooltip */}
+                {count > 0 && (
+                  <div className="absolute -top-6 left-1/2 -translate-x-1/2 hidden group-hover:block bg-foreground text-background text-[10px] rounded px-1 py-0.5 whitespace-nowrap z-10">
+                    {count}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+          <div className="mt-1 flex justify-between text-[9px] text-muted-foreground/50">
+            <span>14d ago</span>
+            <span>Today</span>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Severity breakdown (only when resolved rows have severity) ── */}
+      {hasSeverity && (
+        <div className="rounded-xl border border-border/60 bg-background px-4 py-3">
+          <p className="text-[10px] uppercase tracking-widest text-muted-foreground/70 mb-3">
+            Resolved severity distribution
+          </p>
+          <div className="flex flex-wrap gap-6">
+            {SEVERITY_LABELS.map((label, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <div
+                  className={cn("h-3 rounded-sm", SEVERITY_COLORS[i])}
+                  style={{ width: `${Math.max(8, (severityCounts[i] / Math.max(resolvedCount, 1)) * 80)}px` }}
+                />
+                <span className="text-xs text-muted-foreground">
+                  {label} <span className="font-medium text-foreground">{severityCounts[i]}</span>
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 

@@ -1047,19 +1047,31 @@ function RoadmapSettings({
             <Lock className="h-4 w-4 text-primary" />
             <Label>Submitter identity</Label>
           </div>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Show a wallet address field at the top of the form. Needed for bounty payouts and on-chain receipts.
+          </p>
           <label className="mt-3 inline-flex items-center gap-2 text-sm">
             <input
               type="checkbox"
               className="accent-primary"
-              checked={Boolean(schema.requireWalletId)}
-              onChange={(e) => setSchema({ ...schema, requireWalletId: e.target.checked })}
+              checked={schema.requireWalletId !== undefined}
+              onChange={(e) =>
+                setSchema({ ...schema, requireWalletId: e.target.checked ? false : undefined })
+              }
             />
-            Require wallet address as submitter id
+            Include wallet address field
           </label>
-          <p className="mt-2 text-xs text-muted-foreground">
-            Off (default): submissions are anonymous at the payload level — admin sees only an opaque `anon:…` id.
-            On: payload records the submitter's wallet address. Required for soulbound receipts and bounty payouts.
-          </p>
+          {schema.requireWalletId !== undefined && (
+            <label className="mt-2 ml-6 inline-flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                className="accent-primary"
+                checked={schema.requireWalletId === true}
+                onChange={(e) => setSchema({ ...schema, requireWalletId: e.target.checked })}
+              />
+              Make it required
+            </label>
+          )}
         </div>
 
         <div>

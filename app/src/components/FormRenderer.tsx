@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { Star, Upload, Loader2, Check, Bold, Italic, Underline, Strikethrough, Link as LinkIcon, ListOrdered, List, Quote, Code, Code2 } from "lucide-react";
+import { Star, Upload, Loader2, Check, Bold, Italic, Underline, Strikethrough, Link as LinkIcon, ListOrdered, List, Quote, Code, Code2, Wallet } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input, Textarea, Label } from "@/components/ui/input";
@@ -11,7 +11,12 @@ export interface FormRendererProps {
   schema: FormSchema;
   formId: string;
   submitter?: string;
+  /** @deprecated use schema.requireWalletId instead */
   submitterRequired?: boolean;
+  /** Connect UI to render inside the wallet field when no wallet is connected. */
+  connectPrompt?: React.ReactNode;
+  /** Called when user clicks disconnect inside the wallet field. */
+  onDisconnect?: () => void;
   footerNote?: string;
   onSubmit: (payload: SubmissionPayload, fileBlobIds: string[]) => Promise<void>;
 }
@@ -22,13 +27,19 @@ export function FormRenderer({
   schema,
   formId,
   submitter,
-  submitterRequired = false,
+  connectPrompt,
+  onDisconnect,
   footerNote,
   onSubmit,
 }: FormRendererProps) {
   const [values, setValues] = useState<Record<string, SubmissionValue>>({});
   const [state, setState] = useState<SubmitState>("idle");
   const [error, setError] = useState<string | null>(null);
+
+  // requireWalletId: undefined = field hidden, false = optional, true = required
+  const walletFieldMode = schema.requireWalletId === true ? "required"
+    : schema.requireWalletId === false ? "optional"
+    : "hidden";
 
   function setValue(id: string, value: SubmissionValue) {
     setValues((v) => ({ ...v, [id]: value }));
@@ -61,7 +72,11 @@ export function FormRenderer({
       }
     }
 
-    if (submitterRequired && !submitter) {
+    if (!submitter && connectPrompt !== undefined) {
+      setError("Connect a wallet before submitting.");
+      return;
+    }
+    if (walletFieldMode === "required" && !submitter) {
       setError("Connect a wallet to submit this form.");
       return;
     }
@@ -122,6 +137,15 @@ export function FormRenderer({
         )}
       </div>
 
+      {walletFieldMode !== "hidden" && (
+        <WalletIdentityField
+          address={submitter}
+          required={walletFieldMode === "required"}
+          connectPrompt={connectPrompt}
+          onDisconnect={onDisconnect}
+        />
+      )}
+
       <div className="flex flex-col gap-5">
         {schema.fields.map((field) => (
           <FieldInput
@@ -154,6 +178,79 @@ export function FormRenderer({
       </Button>
       {footerNote && <p className="text-center text-xs text-muted-foreground">{footerNote}</p>}
     </form>
+  );
+}
+
+// ─── Wallet identity field ─────────────────────────────────────────────────
+
+function truncateAddress(addr: string): string {
+  if (addr.length <= 16) return addr;
+  return `${addr.slice(0, 8)}…${addr.slice(-6)}`;
+}
+
+function WalletIdentityField({
+  address,
+  required,
+  connectPrompt,
+  onDisconnect,
+}: {
+  address?: string;
+  required: boolean;
+  connectPrompt?: React.ReactNode;
+  onDisconnect?: () => void;
+}) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <Label>
+        Wallet address
+        {required ? (
+          <span className="ml-1 text-destructive">*</span>
+        ) : (
+          <span className="ml-1.5 text-[10px] font-normal text-muted-foreground/70 uppercase tracking-wide">
+            optional
+          </span>
+        )}
+      </Label>
+      <p className="text-xs text-muted-foreground -mt-0.5">
+        {required
+          ? "Your wallet address is required to submit. It will be recorded as your submitter identity."
+          : "Your wallet address will be attached to this submission if connected."}
+      </p>
+
+      {address ? (
+        <div className="flex items-center gap-2.5 rounded-lg border border-border bg-background-soft px-3 py-2.5">
+          <Wallet className="h-4 w-4 shrink-0 text-primary" />
+          <span className="font-mono text-xs text-foreground" title={address}>
+            {truncateAddress(address)}
+          </span>
+          <span className="ml-auto shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
+            Connected
+          </span>
+          {onDisconnect && (
+            <button
+              type="button"
+              onClick={onDisconnect}
+              className="shrink-0 text-[10px] text-muted-foreground/60 hover:text-destructive transition-colors underline underline-offset-2"
+            >
+              Disconnect
+            </button>
+          )}
+        </div>
+      ) : connectPrompt ? (
+        <div className="rounded-lg border border-dashed border-border/70 bg-background-soft/50 px-4 py-4">
+          <div className="flex items-center gap-2 mb-3">
+            <Wallet className="h-4 w-4 text-muted-foreground/50" />
+            <span className="text-xs text-muted-foreground">No wallet connected</span>
+          </div>
+          <div className="flex flex-col gap-2">{connectPrompt}</div>
+        </div>
+      ) : (
+        <div className="flex items-center gap-2.5 rounded-lg border border-dashed border-border/60 bg-background-soft/50 px-3 py-2.5">
+          <Wallet className="h-4 w-4 shrink-0 text-muted-foreground/40" />
+          <span className="text-xs text-muted-foreground/50 italic">No wallet connected</span>
+        </div>
+      )}
+    </div>
   );
 }
 
