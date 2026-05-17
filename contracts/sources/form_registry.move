@@ -4,6 +4,10 @@ module walrus_forms::form_registry;
 use std::string::String;
 use sui::event;
 use walrus_forms::seal_policies::{Self, Allowlist};
+use sui_groups::permissioned_group::{Self, PermissionedGroup};
+
+/// Witness type scoping PermissionedGroup to Walrus Forms.
+public struct WF has drop {}
 
 const EUnauthorized: u64 = 1;
 
@@ -142,3 +146,10 @@ public fun policy_public(): u8 { POLICY_PUBLIC }
 public fun policy_allowlist(): u8 { POLICY_ALLOWLIST }
 public fun policy_timelock(): u8 { POLICY_TIMELOCK }
 public fun policy_token_gated(): u8 { POLICY_TOKEN_GATED }
+
+/// Create a sui_groups PermissionedGroup scoped to Walrus Forms.
+/// Call this in the same PTB as create_form / create_form_with_allowlist.
+/// Transfer the returned group to sender — they become PermissionsAdmin.
+public fun create_form_group(ctx: &mut TxContext): PermissionedGroup<WF> {
+    permissioned_group::new(WF {}, ctx)
+}

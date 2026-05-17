@@ -221,6 +221,11 @@ create policy "owner updates own subs" on public.form_subscriptions
 create policy "owner deletes own subs" on public.form_subscriptions
   for delete to anon using (owner_key = public.current_owner_key());
 
+-- sui-groups PermissionedGroup object ID created at publish time.
+-- Used by the "Shared with you" dashboard tab to query on-chain group membership.
+alter table public.forms
+  add column if not exists group_object_id text;
+
 -- PostgREST caches the table schema. After running `alter table ... add column`
 -- (e.g. the `reputation_object_id` column above), it must be reloaded or new
 -- columns surface as `PGRST204 Could not find the 'x' column ... in the schema cache`.

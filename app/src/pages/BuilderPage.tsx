@@ -16,6 +16,7 @@ import { FormBuilder } from "@/components/FormBuilder";
 import { FormRenderer } from "@/components/FormRenderer";
 import { readAllowlists, type SavedAllowlist } from "@/forms/allowlists";
 import { deleteLocalForm, readLocalForm, saveLocalForm } from "@/forms/localForms";
+import { appendCreateFormGroup } from "@/forms/groups";
 import type { FormPolicy } from "@/forms/submit";
 import type { FormSchema, WebhookSettings } from "@/forms/types";
 import { cloneTemplateSchema } from "@/forms/templates";
@@ -418,6 +419,11 @@ export function BuilderPage() {
       }
 
       const tx = new Transaction();
+      // Create a sui-groups PermissionedGroup for this form in the same PTB.
+      // Owner receives the group object and becomes PermissionsAdmin.
+      const groupResult = appendCreateFormGroup(tx);
+      tx.transferObjects([groupResult], tx.pure.address(account!.address));
+
       if (policy.kind === "allowlist") {
         // Single PTB: create the Allowlist as a returned value, add every member
         // to it, then hand it off to `create_form_with_allowlist` which derives
@@ -471,6 +477,13 @@ export function BuilderPage() {
         policyToSave = { ...policy, allowlistObjectId };
       }
 
+      // Capture the PermissionedGroup object ID for sui-groups "shared with you" feature.
+      const groupObjectId =
+        extractCreatedObjectId(
+          result,
+          `0xba8a26d42bc8b5e5caf4dac2a0f7544128d5dd9b4614af88eec1311ade11de79::permissioned_group::PermissionedGroup`,
+        ) ?? undefined;
+
       setLastDigest(result.digest ?? null);
       setLastFormId(formId);
       await saveLocalForm({
@@ -483,6 +496,7 @@ export function BuilderPage() {
         schema: publishSchema,
         policy: policyToSave,
         webhooks,
+        groupObjectId,
       });
       await deleteLocalForm(draftId);
       navigate(`/admin/${encodeURIComponent(formId)}`);

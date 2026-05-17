@@ -17,6 +17,8 @@ export interface LocalFormRecord {
   policy?: FormPolicy;
   webhooks?: WebhookSettings[];
   archivedAtMs?: number;
+  /** sui-groups PermissionedGroup object ID created at publish time. */
+  groupObjectId?: string;
 }
 
 interface SupabaseFormRow {
@@ -31,6 +33,7 @@ interface SupabaseFormRow {
   policy: unknown;
   webhooks: unknown;
   archived_at_ms: number | null;
+  group_object_id: string | null;
 }
 
 export async function readLocalForms(): Promise<LocalFormRecord[]> {
@@ -256,6 +259,7 @@ function toSupabaseRow(record: LocalFormRecord): SupabaseFormRow {
     policy: record.policy ?? null,
     webhooks: record.webhooks ?? null,
     archived_at_ms: record.archivedAtMs ?? null,
+    group_object_id: record.groupObjectId ?? null,
   };
 }
 
@@ -271,6 +275,7 @@ function fromSupabaseRow(row: SupabaseFormRow): LocalFormRecord {
     policy: reviveJson(row.policy) as FormPolicy | undefined,
     webhooks: reviveJson(row.webhooks) as WebhookSettings[] | undefined,
     archivedAtMs: row.archived_at_ms ?? undefined,
+    groupObjectId: row.group_object_id ?? undefined,
   };
 }
 

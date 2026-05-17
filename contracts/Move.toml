@@ -4,5 +4,9 @@ edition = "2024.beta"
 license = "MIT"
 authors = ["Walrus Forms Team"]
 
+[dependencies]
+sui_groups = { local = "./sui_groups" }
+
 [addresses]
 walrus_forms = "0x0"
+sui_groups = "0xba8a26d42bc8b5e5caf4dac2a0f7544128d5dd9b4614af88eec1311ade11de79"

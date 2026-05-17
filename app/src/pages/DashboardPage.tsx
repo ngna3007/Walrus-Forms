@@ -30,6 +30,7 @@ import {
   SUBSCRIPTIONS_CHANGED_EVENT,
   type FormSubscription,
 } from "@/forms/subscriptions";
+import { getGroupsForMember } from "@/forms/groups";
 import { cn, relativeTime, truncateAddr } from "@/lib/utils";
 
 type TabKey = "mine" | "shared" | "archived";
@@ -69,12 +70,19 @@ function DashboardContent() {
   const [tab, setTab] = useState<TabKey>("mine");
   const [forms, setForms] = useState<LocalFormRecord[]>([]);
   const [subscriptions, setSubscriptions] = useState<FormSubscription[]>([]);
+  const [groupSharedIds, setGroupSharedIds] = useState<Set<string>>(new Set());
   const [chainCounts, setChainCounts] = useState<Record<string, number>>({});
 
   const reloadSubs = useCallback(() => {
     setSubscriptions(readSubscriptions(account?.address));
     void refreshSubscriptions(account?.address).then(setSubscriptions);
-  }, [account?.address]);
+    // Also query sui-groups for forms shared on-chain with this wallet.
+    if (account?.address) {
+      void getGroupsForMember(client, account.address).then((ids) =>
+        setGroupSharedIds(new Set(ids)),
+      );
+    }
+  }, [account?.address, client]);
 
   const reloadForms = useCallback(() => {
     let cancelled = false;
@@ -177,7 +185,17 @@ function DashboardContent() {
   const ownedIds = new Set(forms.map((f) => f.id));
   const activeForms = forms.filter((f) => !f.archivedAtMs);
   const archivedForms = forms.filter((f) => Boolean(f.archivedAtMs));
-  const sharedForms = subscriptions.filter((s) => !ownedIds.has(s.id));
+  // Supabase subscriptions (visit-link auto-subscribe) + sui-groups on-chain grants.
+  // De-duplicate: if a form id appears in both, show once.
+  const subIds = new Set(subscriptions.map((s) => s.id));
+  const onlyGroupIds = Array.from(groupSharedIds).filter(
+    (id) => !ownedIds.has(id) && !subIds.has(id),
+  );
+  const sharedForms = [
+    ...subscriptions.filter((s) => !ownedIds.has(s.id)),
+    // Group-only entries shown as minimal stubs (no cached metadata).
+    ...onlyGroupIds.map((id) => ({ id, title: id.slice(0, 10) + "…", addedAtMs: 0 })),
+  ] as FormSubscription[];
 
   const TAB_LIST: { key: TabKey; label: string; count: number; icon: typeof LayoutGrid }[] = [
     { key: "mine", label: "My forms", count: activeForms.length, icon: LayoutGrid },
