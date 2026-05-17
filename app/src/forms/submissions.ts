@@ -58,10 +58,10 @@ export function readSubmissionsSync(formId: string): StoredSubmissionRecord[] {
   return readAllLocalSubmissions().filter((submission) => submission.formId === formId);
 }
 
-export async function saveSubmission(record: StoredSubmissionRecord): Promise<void> {
+export async function saveSubmission(record: StoredSubmissionRecord, formOwnerKey?: string): Promise<void> {
   writeLocalSubmissions(mergeSubmissions(readAllLocalSubmissions(), [record]));
   notifySubmissionsChanged();
-  await writeRemoteSubmission(record);
+  await writeRemoteSubmission(record, formOwnerKey);
 }
 
 export async function updateSubmissionStatus(id: string, status: number): Promise<void> {
@@ -158,13 +158,13 @@ async function readRemoteSubmissions(formId: string): Promise<StoredSubmissionRe
   }
 }
 
-async function writeRemoteSubmission(record: StoredSubmissionRecord): Promise<void> {
+async function writeRemoteSubmission(record: StoredSubmissionRecord, formOwnerKey?: string): Promise<void> {
   if (!supabaseConfigured()) return;
   try {
     const response = await fetch(supabaseEndpoint("?on_conflict=id"), {
       method: "POST",
       headers: supabaseHeaders({ Prefer: "resolution=merge-duplicates" }),
-      body: JSON.stringify([toSupabaseRow(record)]),
+      body: JSON.stringify([toSupabaseRow(record, formOwnerKey)]),
     });
     if (!response.ok) console.warn("Supabase submission save failed", await response.text());
   } catch {
@@ -186,7 +186,7 @@ async function patchRemoteSubmissionStatus(id: string, status: number, updatedAt
   }
 }
 
-function toSupabaseRow(record: StoredSubmissionRecord): SupabaseSubmissionRow {
+function toSupabaseRow(record: StoredSubmissionRecord, formOwnerKey?: string): SupabaseSubmissionRow {
   // Persist plaintext payload ONLY for public-policy submissions. Seal-encrypted
   // submissions decrypt client-side and the plaintext stays in localStorage — never
   // remote — to avoid leaking through Supabase row access.
@@ -194,7 +194,7 @@ function toSupabaseRow(record: StoredSubmissionRecord): SupabaseSubmissionRow {
   return {
     id: record.id,
     form_id: record.formId,
-    owner_key: null,
+    owner_key: formOwnerKey ?? null,
     submitter: record.submitter,
     status: record.status,
     submitted_at_ms: record.submittedAtMs,

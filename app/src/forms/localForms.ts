@@ -19,6 +19,8 @@ export interface LocalFormRecord {
   archivedAtMs?: number;
   /** sui-groups PermissionedGroup object ID created at publish time. */
   groupObjectId?: string;
+  /** Wallet address that owns this form. Used to scope localStorage per wallet. */
+  ownerKey?: string;
 }
 
 interface SupabaseFormRow {
@@ -52,7 +54,13 @@ export function readLocalFormsSync(): LocalFormRecord[] {
   try {
     const parsed = JSON.parse(window.localStorage.getItem(LOCAL_FORMS_KEY) ?? "[]", reviveBigInt);
     if (!Array.isArray(parsed)) return [];
-    return sortForms(parsed.filter(isLocalFormRecord));
+    const currentKey = getCurrentOwnerKey();
+    return sortForms(
+      parsed.filter(isLocalFormRecord).filter(
+        // Records without ownerKey are legacy data — allow through for backward compat.
+        (r) => !r.ownerKey || r.ownerKey === currentKey,
+      ),
+    );
   } catch {
     return [];
   }
@@ -66,9 +74,10 @@ export async function readLocalForm(id: string): Promise<LocalFormRecord | null>
 
 export async function saveLocalForm(record: LocalFormRecord): Promise<void> {
   if (typeof window === "undefined") return;
-  const next = [record, ...readLocalFormsSync().filter((form) => form.id !== record.id)];
+  const stamped: LocalFormRecord = { ...record, ownerKey: getOwnerKey() };
+  const next = [stamped, ...readLocalFormsSync().filter((form) => form.id !== record.id)];
   writeLocalForms(next.slice(0, 50));
-  void writeRemoteForm(record);
+  void writeRemoteForm(stamped);
   notifyLocalFormsChanged();
 }
 
@@ -189,6 +198,8 @@ function supabaseHeaders(extra?: HeadersInit): HeadersInit {
 
 async function readRemoteForms(): Promise<LocalFormRecord[] | null> {
   if (!supabaseConfigured()) return null;
+  const key = getOwnerKey();
+  if (!key || key === "anonymous") return null;
   try {
     const response = await fetch(
       supabaseEndpoint(
@@ -206,6 +217,8 @@ async function readRemoteForms(): Promise<LocalFormRecord[] | null> {
 
 async function readRemoteForm(id: string): Promise<LocalFormRecord | null> {
   if (!supabaseConfigured()) return null;
+  const key = getOwnerKey();
+  if (!key || key === "anonymous") return null;
   try {
     const response = await fetch(
       supabaseEndpoint(`?id=eq.${encodeURIComponent(id)}&owner_key=eq.${encodeURIComponent(getOwnerKey())}&select=*&limit=1`),
@@ -276,6 +289,7 @@ function fromSupabaseRow(row: SupabaseFormRow): LocalFormRecord {
     webhooks: reviveJson(row.webhooks) as WebhookSettings[] | undefined,
     archivedAtMs: row.archived_at_ms ?? undefined,
     groupObjectId: row.group_object_id ?? undefined,
+    ownerKey: row.owner_key,
   };
 }
 

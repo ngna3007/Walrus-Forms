@@ -200,22 +200,25 @@ export function SubmitPage() {
     // Receipt is minted on resolve, not on submit — see reputation::mint_receipt.
     const reputationObjectId: string | null = null;
     const now = Date.now();
-    await saveSubmission({
-      id: submissionObjectId ?? (txDigest ? `${formId}:${txDigest}` : `${formId}:${submissionBlobId}:${now}`),
-      formId,
-      submitter: submitterForPayload,
-      status: 0,
-      submittedAtMs: submissionPayload.submittedAt,
-      updatedAtMs: now,
-      walrusBlobId: submissionBlobId,
-      suiSubmissionObjectId: submissionObjectId ?? undefined,
-      reputationObjectId: schema.reputation?.enabled ? reputationObjectId ?? undefined : undefined,
-      txDigest,
-      encrypted: policy.kind !== "public",
-      decrypted: policy.kind === "public",
-      payload: policy.kind === "public" ? submissionPayload : undefined,
-      fileBlobIds,
-    });
+    await saveSubmission(
+      {
+        id: submissionObjectId ?? (txDigest ? `${formId}:${txDigest}` : `${formId}:${submissionBlobId}:${now}`),
+        formId,
+        submitter: submitterForPayload,
+        status: 0,
+        submittedAtMs: submissionPayload.submittedAt,
+        updatedAtMs: now,
+        walrusBlobId: submissionBlobId,
+        suiSubmissionObjectId: submissionObjectId ?? undefined,
+        reputationObjectId: schema.reputation?.enabled ? reputationObjectId ?? undefined : undefined,
+        txDigest,
+        encrypted: policy.kind !== "public",
+        decrypted: policy.kind === "public",
+        payload: policy.kind === "public" ? submissionPayload : undefined,
+        fileBlobIds,
+      },
+      formMeta?.owner,
+    );
     void bumpFormSubmissionCount(formId);
   }
 

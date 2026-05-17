@@ -110,20 +110,17 @@ export function FormRenderer({
 
   if (state === "done") {
     return (
-      <div className="flex flex-col gap-6 p-6">
-        <div className="rounded-2xl border border-primary/25 bg-primary/10 px-5 py-6 text-center">
-          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-primary text-primary-foreground">
-            <Check className="h-5 w-5" />
-          </div>
-          <h2 className="mt-4 text-2xl font-semibold">Your response has been recorded.</h2>
-          <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-muted-foreground">
-            You can submit another response if you need to add more feedback.
-          </p>
+      <div className="flex flex-col">
+        <img
+          src="/walrus-submitted.png"
+          alt="Form submitted"
+          className="w-full h-auto object-cover pointer-events-none select-none"
+        />
+        <div className="px-6 pb-6 pt-4 flex flex-col items-center gap-4 text-center">
+          <Button type="button" size="lg" variant="secondary" onClick={submitAnotherResponse}>
+            Submit another response
+          </Button>
         </div>
-
-        <Button type="button" size="lg" variant="secondary" onClick={submitAnotherResponse}>
-          Submit another response
-        </Button>
       </div>
     );
   }

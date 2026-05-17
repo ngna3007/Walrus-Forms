@@ -253,10 +253,10 @@ export function AdminPage() {
 
     async function loadSubmissions() {
       const indexed = await readSubmissions(formId ?? "");
-      const onchain = activeFormMeta ? await readOnchainSubmissions(client, formId ?? "", activeFormMeta.policyType) : [];
+      const onchain = await readOnchainSubmissions(client, formId ?? "", activeFormMeta?.policyType ?? 0);
       const indexedIds = new Set(indexed.map((submission) => submission.id));
       const missing = onchain.filter((submission) => !indexedIds.has(submission.id));
-      await Promise.all(missing.map(saveSubmission));
+      await Promise.all(missing.map((s) => saveSubmission(s, activeFormMeta?.owner)));
       if (cancelled) return;
       const merged = mergeSubmissionRecords(indexed, onchain).map(toRow);
       // Apply optimistic status overrides — but clear them when chain status

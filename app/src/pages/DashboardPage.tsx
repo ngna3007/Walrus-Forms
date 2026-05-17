@@ -116,8 +116,10 @@ function DashboardContent() {
     return () => {
       cancelled = true;
     };
-  }, [client]);
+  }, [client, account?.address]);
 
+  // Re-fetch from Supabase whenever the connected wallet changes (including after
+  // localStorage clear, when the wallet reconnects and gives us a real owner key).
   useEffect(() => {
     let cancelReload = reloadForms();
     reloadSubs();
