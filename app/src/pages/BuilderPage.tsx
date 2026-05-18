@@ -385,7 +385,11 @@ export function BuilderPage() {
         }
       }
 
-      const { blobId } = await storeBlob(schemaBytes, { epochs: storageEpochs });
+      const { blobId } = await storeBlob(schemaBytes, {
+        epochs: storageEpochs,
+        signAndExecute: WALRUS_USE_SDK ? signAndExecute : undefined,
+        owner: WALRUS_USE_SDK ? account.address : undefined,
+      });
 
       // ── Edit mode ────────────────────────────────────────────────────────
       // If we're editing a published Form, do an in-place update instead of

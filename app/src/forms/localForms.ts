@@ -267,7 +267,7 @@ function toSupabaseRow(record: LocalFormRecord): SupabaseFormRow {
     status: record.status ?? "published",
     created_at_ms: record.createdAtMs,
     updated_at_ms: record.updatedAtMs ?? record.createdAtMs,
-    submission_count: record.submissionCount ?? null,
+    submission_count: record.submissionCount ?? 0,
     schema: record.schema ?? null,
     policy: record.policy ?? null,
     webhooks: record.webhooks ?? null,

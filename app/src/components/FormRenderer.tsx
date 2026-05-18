@@ -378,10 +378,15 @@ function FieldInput({
   onChange: (v: SubmissionValue) => void;
 }) {
   const labelEl = (
-    <Label>
-      {field.label}
-      {field.required && <span className="ml-1 text-destructive">*</span>}
-    </Label>
+    <div className="flex flex-col gap-0.5">
+      <Label>
+        {field.label}
+        {field.required && <span className="ml-1 text-destructive">*</span>}
+      </Label>
+      {field.helpText && (
+        <p className="text-xs text-muted-foreground">{field.helpText}</p>
+      )}
+    </div>
   );
 
   switch (field.type) {

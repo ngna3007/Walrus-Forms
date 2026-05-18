@@ -1,9 +1,9 @@
 [package]
 name = "sui_groups"
 edition = "2024"
-published-at = "0xba8a26d42bc8b5e5caf4dac2a0f7544128d5dd9b4614af88eec1311ade11de79"
+published-at = "0x541840ae7df705d1c6329c22415ed61f9140a18b79b13c1c9dc7415b115c1ba8"
 
 [dependencies]
 
 [addresses]
-sui_groups = "0xba8a26d42bc8b5e5caf4dac2a0f7544128d5dd9b4614af88eec1311ade11de79"
+sui_groups = "0x541840ae7df705d1c6329c22415ed61f9140a18b79b13c1c9dc7415b115c1ba8"

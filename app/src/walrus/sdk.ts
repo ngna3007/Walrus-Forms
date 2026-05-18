@@ -18,7 +18,13 @@ function createClient() {
   return new SuiGrpcClient({
     network: NETWORK,
     baseUrl: FULLNODE_URL,
-  }).$extend(walrus());
+  }).$extend(
+    walrus(
+      NETWORK === "mainnet"
+        ? { uploadRelay: { host: "https://upload-relay.mainnet.walrus.space" } }
+        : {},
+    ),
+  );
 }
 
 export function getWalrusSdkClient() {
