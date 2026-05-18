@@ -19,10 +19,11 @@ import { RegisterEnokiWallets } from "./enoki/RegisterEnokiWallets";
 
 applyTheme(getStoredTheme());
 
-const { networkConfig } = createNetworkConfig({
-  testnet: { url: getJsonRpcFullnodeUrl("testnet"), network: "testnet" },
-  mainnet: { url: getJsonRpcFullnodeUrl("mainnet"), network: "mainnet" },
-});
+const { networkConfig } = createNetworkConfig(
+  NETWORK === "mainnet"
+    ? { mainnet: { url: getJsonRpcFullnodeUrl("mainnet"), network: "mainnet" } }
+    : { testnet: { url: getJsonRpcFullnodeUrl("testnet"), network: "testnet" } },
+);
 
 const queryClient = new QueryClient();
 
