@@ -21,7 +21,7 @@ function createClient() {
   }).$extend(
     walrus(
       NETWORK === "mainnet"
-        ? { uploadRelay: { host: "https://upload-relay.mainnet.walrus.space" } }
+        ? { uploadRelay: { host: "https://upload-relay.mainnet.walrus.space", sendTip: { max: 1_000_000_000 } } }
         : {},
     ),
   );
