@@ -487,28 +487,6 @@ export function BuilderPage() {
         webhooks,
       });
 
-      // Best-effort: create a sui-groups PermissionedGroup for this form.
-      // Runs in a separate tx so a failure (e.g. function not yet on this package)
-      // never blocks the form from being published.
-      void (async () => {
-        try {
-          const groupTx = new Transaction();
-          const groupResult = appendCreateFormGroup(groupTx);
-          groupTx.transferObjects([groupResult], groupTx.pure.address(account!.address));
-          const groupRes = await signAndExecute({ transaction: groupTx });
-          const groupObjectId =
-            extractCreatedObjectId(
-              groupRes,
-              `0xba8a26d42bc8b5e5caf4dac2a0f7544128d5dd9b4614af88eec1311ade11de79::permissioned_group::PermissionedGroup`,
-            ) ?? undefined;
-          if (groupObjectId) {
-            const saved = await import("@/forms/localForms").then((m) => m.readLocalForm(formId));
-            if (saved) await import("@/forms/localForms").then((m) => m.saveLocalForm({ ...saved, groupObjectId }));
-          }
-        } catch {
-          // sui-groups not available on this package version — skip silently
-        }
-      })();
       await deleteLocalForm(draftId);
       navigate(`/admin/${encodeURIComponent(formId)}`);
     } catch (err) {
