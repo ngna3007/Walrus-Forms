@@ -9,7 +9,7 @@ const CLOCK_OBJECT_ID = "0x6";
 
 export type FormPolicy =
   | { kind: "public" }
-  | { kind: "allowlist"; allowlistObjectId: string; allowlistId?: string; allowlistName?: string; members?: string[] }
+  | { kind: "allowlist"; allowlistObjectId: string; allowlistId?: string; allowlistName?: string; members?: string[]; memberRoles?: Record<string, "admin" | "reviewer"> }
   | { kind: "timelock"; unlockTimeMs: bigint }
   | { kind: "tokenGated"; gateObjectId: string };
 

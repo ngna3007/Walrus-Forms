@@ -523,28 +523,38 @@ export function BuilderPage() {
               </Button>
             </Link>
           )}
-          <Button
-            variant="outline"
-            onClick={() => setViewMode((mode) => (mode === "edit" ? "preview" : "edit"))}
-            leftIcon={viewMode === "edit" ? <Eye className="h-4 w-4" /> : <Pencil className="h-4 w-4" />}
-          >
-            {viewMode === "edit" ? "Preview" : "Edit"}
-          </Button>
         </div>
       }
     >
       <PageHeader
         eyebrow="Builder"
-        title={viewMode === "edit" ? (editingPublishedFormId ? "Edit form" : "Compose a form") : "Preview form"}
-        description={
-          viewMode === "edit"
-            ? "Drag fields, pick a Seal policy, ship a shareable link."
-            : "Review the submitter experience before publishing."
-        }
+        title={editingPublishedFormId ? "Edit form" : "Compose a form"}
+        description="Drag fields, pick a Seal policy, ship a shareable link."
       />
 
       <ConnectGate message="Connect a wallet to publish forms on chain.">
       <div className="max-w-5xl flex flex-col gap-4">
+
+        {/* Edit / Preview tabs */}
+        <div className="flex gap-1 border-b border-border/50">
+          {(["edit", "preview"] as const).map((t) => (
+            <button
+              key={t}
+              type="button"
+              onClick={() => setViewMode(t)}
+              className={cn(
+                "flex items-center gap-1.5 px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px",
+                viewMode === t
+                  ? "border-primary text-primary"
+                  : "border-transparent text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {t === "edit" ? <Pencil className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+              {t === "edit" ? "Edit" : "Preview"}
+            </button>
+          ))}
+        </div>
+
         {viewMode === "preview" ? (
           <Card className="liquid-glass-strong rounded-3xl p-0 overflow-hidden max-w-2xl w-full mx-auto">
             <FormRenderer
@@ -794,6 +804,16 @@ function extractCreatedObjectId(result: SuiTransactionBlockResponse, objectType:
   return created && "objectId" in created ? created.objectId : null;
 }
 
+type MemberEntry = { address: string; role: "admin" | "reviewer" };
+
+function memberEntries(policy: FormPolicy): MemberEntry[] {
+  if (policy.kind !== "allowlist") return [];
+  return (policy.members ?? []).map((addr) => ({
+    address: addr,
+    role: (policy.memberRoles?.[addr] ?? "admin") as "admin" | "reviewer",
+  }));
+}
+
 function PolicyDetails({ policy, setPolicy }: { policy: FormPolicy; setPolicy: (p: FormPolicy) => void }) {
   const [savedAllowlists, setSavedAllowlists] = useState<SavedAllowlist[]>([]);
   const [draftMembers, setDraftMembers] = useState("");
@@ -826,80 +846,98 @@ function PolicyDetails({ policy, setPolicy }: { policy: FormPolicy; setPolicy: (
               </Badge>
             </div>
 
-            <Textarea
-              className="mt-3 min-h-28 font-mono text-xs"
-              rows={5}
-              value={draftMembers}
-              onChange={(e) => {
-                setDraftMembers(e.target.value);
-                const members = parseWalletList(e.target.value);
-                setPolicy({
-                  kind: "allowlist",
-                  members,
-                  allowlistObjectId: "",
-                });
-              }}
-              placeholder="0x123...
-0x456..."
-            />
-
-            <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-              <select
-                className="h-10 flex-1 rounded-lg border border-border bg-background px-3 text-sm"
-                value={policy.allowlistId ?? ""}
-                onChange={(e) => {
-                  const selected = savedAllowlists.find((list) => list.id === e.target.value);
-                  if (!selected) {
-                    setPolicy({ kind: "allowlist", allowlistObjectId: "", members: parseWalletList(draftMembers) });
-                    return;
-                  }
-                  setDraftMembers(selected.members.join("\n"));
-                  setPolicy({
-                    kind: "allowlist",
-                    allowlistId: selected.id,
-                    allowlistName: selected.name,
-                    allowlistObjectId: "",
-                    members: selected.members,
-                  });
-                }}
-              >
-                <option value="">Use a saved wallet list</option>
-                {savedAllowlists
-                  .filter((list) => list.members.length > 0 && list.name.trim() && list.name.trim().toLowerCase() !== "untitled allowlist")
-                  .map((list) => (
-                    <option key={list.id} value={list.id}>
-                      {list.name} ({list.members.length})
-                    </option>
-                  ))}
-              </select>
-              <Button
-                variant="secondary"
+            {/* Per-address row editor */}
+            <div className="mt-3 space-y-2">
+              {memberEntries(policy).map((entry, i) => (
+                <div key={i} className="flex items-center gap-2">
+                  <input
+                    className="flex-1 h-8 rounded-lg border border-border bg-background px-3 font-mono text-xs placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/40"
+                    placeholder="0x… wallet address"
+                    value={entry.address}
+                    onChange={(e) => {
+                      if (policy.kind !== "allowlist") return;
+                      const entries = memberEntries(policy);
+                      entries[i] = { ...entries[i], address: e.target.value };
+                      const members = entries.map((en) => en.address).filter(Boolean);
+                      const memberRoles = Object.fromEntries(entries.filter((en) => en.address).map((en) => [en.address, en.role]));
+                      setPolicy({ ...policy, members, memberRoles, allowlistObjectId: "" });
+                    }}
+                  />
+                  <select
+                    className="h-8 rounded-lg border border-border bg-background px-2 text-xs shrink-0"
+                    value={entry.role}
+                    onChange={(e) => {
+                      if (policy.kind !== "allowlist") return;
+                      const entries = memberEntries(policy);
+                      entries[i] = { ...entries[i], role: e.target.value as "admin" | "reviewer" };
+                      const memberRoles = Object.fromEntries(entries.filter((en) => en.address).map((en) => [en.address, en.role]));
+                      setPolicy({ ...policy, memberRoles, allowlistObjectId: "" });
+                    }}
+                  >
+                    <option value="admin">Admin</option>
+                    <option value="reviewer">Reviewer</option>
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (policy.kind !== "allowlist") return;
+                      const entries = memberEntries(policy).filter((_, j) => j !== i);
+                      const members = entries.map((en) => en.address).filter(Boolean);
+                      const memberRoles = Object.fromEntries(entries.filter((en) => en.address).map((en) => [en.address, en.role]));
+                      setPolicy({ ...policy, members, memberRoles, allowlistObjectId: "" });
+                    }}
+                    className="p-1 rounded text-muted-foreground/40 hover:text-destructive hover:bg-destructive/10 transition-colors shrink-0"
+                  >
+                    <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                  </button>
+                </div>
+              ))}
+              <button
                 type="button"
                 onClick={() => {
-                  setDraftMembers("");
-                  setPolicy({ kind: "allowlist", allowlistObjectId: "", members: [] });
+                  if (policy.kind !== "allowlist") return;
+                  const entries = [...memberEntries(policy), { address: "", role: "admin" as const }];
+                  setPolicy({ ...policy, allowlistObjectId: "" });
+                  const members = entries.map((en) => en.address).filter(Boolean);
+                  const memberRoles = Object.fromEntries(entries.filter((en) => en.address).map((en) => [en.address, en.role]));
+                  setPolicy({ ...policy, members, memberRoles, allowlistObjectId: "" });
                 }}
+                className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition-colors mt-1"
               >
-                Clear
-              </Button>
+                <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M5 12h14"/></svg>
+                Add address
+              </button>
             </div>
 
-            {savedAllowlists.length === 0 && (
-              <p className="mt-2 text-xs text-muted-foreground">
-                Saved wallet lists can be created from the Allowlists page.
-              </p>
-            )}
-
-            {policy.members?.length ? (
-              <div className="mt-3 flex flex-wrap gap-1.5">
-                {policy.members.slice(0, 10).map((member) => (
-                  <Badge key={member} tone="neutral">
-                    {shortObjectId(member)}
-                  </Badge>
-                ))}
-                {policy.members.length > 10 && <Badge tone="neutral">+{policy.members.length - 10}</Badge>}
+            {/* Import from saved list */}
+            {savedAllowlists.filter((l) => l.members.length > 0 && l.name.trim() && l.name.trim().toLowerCase() !== "untitled allowlist").length > 0 && (
+              <div className="mt-3 flex gap-2">
+                <select
+                  className="h-8 flex-1 rounded-lg border border-border bg-background px-3 text-xs"
+                  value=""
+                  onChange={(e) => {
+                    const selected = savedAllowlists.find((list) => list.id === e.target.value);
+                    if (!selected || policy.kind !== "allowlist") return;
+                    const existing = memberEntries(policy);
+                    const existingAddrs = new Set(existing.map((en) => en.address));
+                    const toAdd: MemberEntry[] = selected.members
+                      .filter((m) => !existingAddrs.has(m))
+                      .map((m) => ({ address: m, role: "admin" as const }));
+                    const entries = [...existing, ...toAdd];
+                    const members = entries.map((en) => en.address).filter(Boolean);
+                    const memberRoles = Object.fromEntries(entries.filter((en) => en.address).map((en) => [en.address, en.role]));
+                    setPolicy({ ...policy, allowlistId: selected.id, allowlistName: selected.name, members, memberRoles, allowlistObjectId: "" });
+                  }}
+                >
+                  <option value="">Import from saved list…</option>
+                  {savedAllowlists
+                    .filter((l) => l.members.length > 0 && l.name.trim() && l.name.trim().toLowerCase() !== "untitled allowlist")
+                    .map((list) => (
+                      <option key={list.id} value={list.id}>{list.name} ({list.members.length})</option>
+                    ))}
+                </select>
               </div>
-            ) : null}
+            )}
           </div>
 
           <p className="text-xs text-muted-foreground">
@@ -979,152 +1017,135 @@ function RoadmapSettings({
 
   return (
     <Card className="p-6">
-      <div className="grid gap-5">
-        <div>
-          <div className="flex items-center gap-2">
-            <Gift className="h-4 w-4 text-secondary-strong dark:text-secondary" />
-            <Label>Sponsored bounty</Label>
-          </div>
-          <div className="mt-3 flex flex-wrap items-center gap-3">
-            <label className="inline-flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                className="accent-primary"
-                checked={bounty.enabled}
-                onChange={(e) => patchBounty({ enabled: e.target.checked })}
-              />
-              Enable bounty payouts
-            </label>
-            <select
-              className="h-10 rounded-lg bg-background-soft border border-border px-3 text-sm"
-              value={bounty.tokenSymbol}
-              onChange={(e) => patchBounty({ tokenSymbol: e.target.value as "WAL" | "SUI" })}
-              disabled={!bounty.enabled}
-            >
-              <option value="WAL">WAL</option>
-              <option value="SUI">SUI</option>
-            </select>
+      <div className="grid gap-0 divide-y divide-border/50">
+
+        {/* Sponsored bounty */}
+        <div className="py-5 first:pt-0 last:pb-0">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex items-start gap-3">
+              <div className="mt-0.5 h-8 w-8 rounded-lg bg-secondary/10 flex items-center justify-center shrink-0">
+                <Gift className="h-4 w-4 text-secondary-strong dark:text-secondary" />
+              </div>
+              <div>
+                <p className="text-sm font-medium">Sponsored bounty</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Severity-tiered payouts from your wallet at resolve time</p>
+              </div>
+            </div>
+            <ToggleSwitch checked={bounty.enabled} onChange={(v) => patchBounty({ enabled: v })} />
           </div>
           {bounty.enabled && (
-            <>
-              <p className="mt-3 text-xs text-muted-foreground">
-                Severity-tiered payouts. You pick severity when resolving; submitter is paid from your
-                wallet at that tier amount in one signed transaction. No upfront escrow funding.
-              </p>
-              <div className="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-2">
+            <div className="mt-4 ml-11 space-y-3">
+              <div className="flex items-center gap-2">
+                <p className="text-xs text-muted-foreground">Token</p>
+                <select
+                  className="h-7 rounded-lg bg-background-soft border border-border px-2 text-xs"
+                  value={bounty.tokenSymbol}
+                  onChange={(e) => patchBounty({ tokenSymbol: e.target.value as "WAL" | "SUI" })}
+                >
+                  <option value="WAL">WAL</option>
+                  <option value="SUI">SUI</option>
+                </select>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 {(["Low", "Medium", "High", "Critical"] as const).map((label, i) => (
                   <div key={label}>
-                    <label className="block text-[11px] uppercase tracking-widest text-muted-foreground mb-1">
-                      {label}
-                    </label>
+                    <p className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1">{label}</p>
                     <Input
                       value={tiers[i]}
                       onChange={(e) => {
-                        const next: [string, string, string, string] = [...tiers] as [
-                          string,
-                          string,
-                          string,
-                          string,
-                        ];
+                        const next: [string, string, string, string] = [...tiers] as [string, string, string, string];
                         next[i] = e.target.value;
                         patchBounty({ tiers: next });
                       }}
                       placeholder="0"
-                      disabled={!bounty.enabled}
                     />
                   </div>
                 ))}
               </div>
-              <p className="mt-2 text-[10px] text-muted-foreground">
-                Funds debit from your wallet at resolve time. Keep enough balance for the chosen tier.
-              </p>
-            </>
+              <p className="text-[10px] text-muted-foreground">Funds debit from your wallet at resolve time. Keep enough balance for the chosen tier.</p>
+            </div>
           )}
         </div>
 
-        <div>
-          <div className="flex items-center gap-2">
-            <Lock className="h-4 w-4 text-primary" />
-            <Label>Submitter identity</Label>
+        {/* Submission identity */}
+        <div className="py-5 first:pt-0 last:pb-0">
+          <div className="flex items-start gap-3 mb-3">
+            <div className="mt-0.5 h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+              <Lock className="h-4 w-4 text-primary" />
+            </div>
+            <div>
+              <p className="text-sm font-medium">Submission identity</p>
+              <p className="text-xs text-muted-foreground mt-0.5">Controls the wallet address field shown to submitters</p>
+            </div>
           </div>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Show a wallet address field at the top of the form. Needed for bounty payouts and on-chain receipts.
-          </p>
-          <label className="mt-3 inline-flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              className="accent-primary"
-              checked={schema.requireWalletId !== undefined}
-              onChange={(e) =>
-                setSchema({ ...schema, requireWalletId: e.target.checked ? false : undefined })
-              }
-            />
-            Include wallet address field
-          </label>
-          {schema.requireWalletId !== undefined && (
-            <label className="mt-2 ml-6 inline-flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                className="accent-primary"
-                checked={schema.requireWalletId === true}
-                onChange={(e) => setSchema({ ...schema, requireWalletId: e.target.checked })}
-              />
-              Make it required
-            </label>
-          )}
+          <div className="ml-11 grid grid-cols-3 gap-2">
+            {([
+              { value: undefined, label: "Anonymous", sub: "No wallet required" },
+              { value: false, label: "Optional", sub: "Wallet can be recorded" },
+              { value: true, label: "Required", sub: "Wallet must sign" },
+            ] as { value: boolean | undefined; label: string; sub: string }[]).map((opt) => {
+              const active = opt.value === undefined ? schema.requireWalletId === undefined : schema.requireWalletId === opt.value;
+              return (
+                <button
+                  key={String(opt.value)}
+                  type="button"
+                  onClick={() => setSchema({ ...schema, requireWalletId: opt.value })}
+                  className={cn(
+                    "text-left rounded-xl border p-3 transition-all",
+                    active ? "border-primary bg-primary/8 ring-2 ring-primary/30" : "border-border bg-background-soft hover:border-primary/30",
+                  )}
+                >
+                  <p className="text-sm font-medium">{opt.label}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">{opt.sub}</p>
+                </button>
+              );
+            })}
+          </div>
         </div>
 
-        <div>
-          <div className="flex items-center gap-2">
-            <Sparkles className="h-4 w-4 text-secondary-strong dark:text-secondary" />
-            <Label>Submitter reputation</Label>
+        {/* Submitter reputation */}
+        <div className="py-5 first:pt-0 last:pb-0">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex items-start gap-3">
+              <div className="mt-0.5 h-8 w-8 rounded-lg bg-secondary/10 flex items-center justify-center shrink-0">
+                <Sparkles className="h-4 w-4 text-secondary-strong dark:text-secondary" />
+              </div>
+              <div>
+                <p className="text-sm font-medium">Submitter reputation</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Create on-chain reputation records for submissions</p>
+              </div>
+            </div>
+            <ToggleSwitch checked={reputation.enabled} onChange={(v) => patchReputation({ enabled: v })} />
           </div>
-          <label className="mt-3 inline-flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              className="accent-primary"
-              checked={reputation.enabled}
-              onChange={(e) => patchReputation({ enabled: e.target.checked })}
-            />
-            Create on-chain reputation records for submissions
-          </label>
           {reputation.enabled && (
-            <p className="mt-2 text-xs text-muted-foreground">
+            <p className="mt-3 ml-11 text-xs text-muted-foreground">
               Each submitter signs creation of their own reputation record during submission. Resolved reports can update that record from the admin view.
             </p>
           )}
         </div>
 
-        <div>
-          <div className="flex items-center gap-2">
-            <Vote className="h-4 w-4 text-tertiary-strong dark:text-tertiary" />
-            <Label>Feature request voting</Label>
-          </div>
-          <div className="mt-3 flex flex-wrap gap-4 text-sm">
-            <label className="inline-flex items-center gap-2">
-              <input
-                type="checkbox"
-                className="accent-primary"
-                checked={voting.enabled}
-                onChange={(e) => patchVoting({ enabled: e.target.checked })}
-              />
-              Enable voting
-            </label>
-            <label className="inline-flex items-center gap-2">
-              <input
-                type="checkbox"
-                className="accent-primary"
-                checked={voting.quadratic}
-                disabled={!voting.enabled}
-                onChange={(e) => patchVoting({ quadratic: e.target.checked })}
-              />
-              Quadratic credits
-            </label>
+        {/* Feature request voting */}
+        <div className="py-5 first:pt-0 last:pb-0">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex items-start gap-3">
+              <div className="mt-0.5 h-8 w-8 rounded-lg bg-tertiary/10 flex items-center justify-center shrink-0">
+                <Vote className="h-4 w-4 text-tertiary-strong dark:text-tertiary" />
+              </div>
+              <div>
+                <p className="text-sm font-medium">Feature request voting</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Let submitters vote on each other's entries</p>
+              </div>
+            </div>
+            <ToggleSwitch checked={voting.enabled} onChange={(v) => patchVoting({ enabled: v })} />
           </div>
           {voting.enabled && (
-            <p className="mt-2 text-xs text-muted-foreground">
-              The voting board can be created after the form has a published on-chain id.
-            </p>
+            <div className="mt-3 ml-11 space-y-2">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <ToggleSwitch checked={voting.quadratic} onChange={(v) => patchVoting({ quadratic: v })} size="sm" />
+                <span className="text-sm">Quadratic credits</span>
+              </label>
+              <p className="text-xs text-muted-foreground">Voting board can be created after the form has a published on-chain id.</p>
+            </div>
           )}
         </div>
 
@@ -1185,5 +1206,39 @@ function RoadmapSettings({
         </div>
       </div>
     </Card>
+  );
+}
+
+function ToggleSwitch({
+  checked,
+  onChange,
+  size = "md",
+}: {
+  checked: boolean;
+  onChange: (v: boolean) => void;
+  size?: "sm" | "md";
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      onClick={() => onChange(!checked)}
+      className={cn(
+        "relative inline-flex shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50",
+        size === "sm" ? "h-4 w-7" : "h-5 w-9",
+        checked ? "bg-primary" : "bg-border",
+      )}
+    >
+      <span
+        className={cn(
+          "pointer-events-none inline-block rounded-full bg-white shadow transition-transform duration-200",
+          size === "sm" ? "h-3 w-3" : "h-4 w-4",
+          checked
+            ? size === "sm" ? "translate-x-3" : "translate-x-4"
+            : "translate-x-0",
+        )}
+      />
+    </button>
   );
 }

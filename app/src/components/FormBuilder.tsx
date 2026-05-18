@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import {
   GripVertical,
   Trash2,
@@ -115,6 +116,7 @@ export function FormBuilder({ initial, onSchemaChange }: FormBuilderProps) {
   const [canvasOver, setCanvasOver] = useState(false);
   const [dragId, setDragId] = useState<string | null>(null); // canvas reorder
   const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
+  const [isDraggingAny, setIsDraggingAny] = useState(false);
   const dragTypeRef = useRef<FieldType | null>(null); // palette → canvas
   const dragSourceRef = useRef<"palette" | "canvas" | null>(null);
 
@@ -158,6 +160,15 @@ export function FormBuilder({ initial, onSchemaChange }: FormBuilderProps) {
     update({ ...schema, fields: schema.fields.filter((f) => f.id !== id) });
   }
 
+  function resetDragState() {
+    setIsDraggingAny(false);
+    setDragId(null);
+    setCanvasOver(false);
+    setDragOverIdx(null);
+    dragTypeRef.current = null;
+    dragSourceRef.current = null;
+  }
+
   function reorderField(fromId: string, toIndex: number) {
     const fields = [...schema.fields];
     const fromIndex = fields.findIndex((f) => f.id === fromId);
@@ -173,6 +184,7 @@ export function FormBuilder({ initial, onSchemaChange }: FormBuilderProps) {
   function handlePaletteDragStart(e: React.DragEvent, type: FieldType) {
     dragTypeRef.current = type;
     dragSourceRef.current = "palette";
+    setIsDraggingAny(true);
     e.dataTransfer.effectAllowed = "copy";
     e.dataTransfer.setData("text/plain", type);
   }
@@ -193,42 +205,49 @@ export function FormBuilder({ initial, onSchemaChange }: FormBuilderProps) {
 
   function handleCanvasDrop(e: React.DragEvent, atIndex: number) {
     e.preventDefault();
-    setCanvasOver(false);
-    setDragOverIdx(null);
-
-    if (dragSourceRef.current === "palette" && dragTypeRef.current) {
-      addField(dragTypeRef.current, atIndex);
-    } else if (dragSourceRef.current === "canvas" && dragId) {
-      reorderField(dragId, atIndex);
+    const src = dragSourceRef.current;
+    const type = dragTypeRef.current;
+    const id = dragId;
+    resetDragState();
+    if (src === "palette" && type) {
+      addField(type, atIndex);
+    } else if (src === "canvas" && id) {
+      reorderField(id, atIndex);
     }
-
-    dragTypeRef.current = null;
-    dragSourceRef.current = null;
-    setDragId(null);
   }
 
   function handleCanvasBottomDrop(e: React.DragEvent) {
     e.preventDefault();
-    setCanvasOver(false);
-    setDragOverIdx(null);
-
-    if (dragSourceRef.current === "palette" && dragTypeRef.current) {
-      addField(dragTypeRef.current);
-    } else if (dragSourceRef.current === "canvas" && dragId) {
-      reorderField(dragId, schema.fields.length);
+    const src = dragSourceRef.current;
+    const type = dragTypeRef.current;
+    const id = dragId;
+    resetDragState();
+    if (src === "palette" && type) {
+      addField(type);
+    } else if (src === "canvas" && id) {
+      reorderField(id, schema.fields.length);
     }
-
-    dragTypeRef.current = null;
-    dragSourceRef.current = null;
-    setDragId(null);
   }
 
   function handleFieldDragStart(e: React.DragEvent, id: string) {
     dragSourceRef.current = "canvas";
     dragTypeRef.current = null;
+    setIsDraggingAny(true);
     setDragId(id);
     e.dataTransfer.effectAllowed = "move";
     e.dataTransfer.setData("text/plain", id);
+    const ghost = document.createElement("div");
+    ghost.textContent = "Moving field";
+    Object.assign(ghost.style, {
+      position: "fixed", top: "-200px",
+      padding: "4px 12px", borderRadius: "6px",
+      background: "var(--primary)", color: "#fff",
+      fontSize: "12px", fontWeight: "600", whiteSpace: "nowrap",
+      pointerEvents: "none",
+    });
+    document.body.appendChild(ghost);
+    e.dataTransfer.setDragImage(ghost, ghost.offsetWidth / 2, 16);
+    requestAnimationFrame(() => document.body.removeChild(ghost));
   }
 
   const isEmpty = schema.fields.length === 0;
@@ -253,6 +272,7 @@ export function FormBuilder({ initial, onSchemaChange }: FormBuilderProps) {
               onMouseEnter={() => setPaletteHover(def.value)}
               onMouseLeave={() => setPaletteHover(null)}
               onDragStart={(e) => handlePaletteDragStart(e, def.value)}
+              onDragEnd={resetDragState}
               onDoubleClick={() => addField(def.value)}
             />
           ))}
@@ -280,32 +300,47 @@ export function FormBuilder({ initial, onSchemaChange }: FormBuilderProps) {
                 handleCanvasDragOverEnd();
               }
             }}
+            onDragEnd={resetDragState}
           >
-            {schema.fields.map((field, idx) => (
-              <div key={field.id}>
-                {/* Drop zone before this card */}
-                <DropIndicator
-                  active={dragOverIdx === idx && canvasOver}
-                  onDragOver={(e) => handleCanvasDragOver(e, idx)}
-                  onDrop={(e) => handleCanvasDrop(e, idx)}
-                />
+            <AnimatePresence initial={false}>
+              {schema.fields.map((field, idx) => (
+                <motion.div
+                  key={field.id}
+                  layout
+                  initial={{ opacity: 0, scale: 0.97, y: -6 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.95, y: -4 }}
+                  transition={{ type: "spring", stiffness: 400, damping: 30 }}
+                >
+                  {/* Drop zone before this card */}
+                  <DropIndicator
+                    active={dragOverIdx === idx && canvasOver}
+                    isDraggingAny={isDraggingAny}
+                    onDragOver={(e) => handleCanvasDragOver(e, idx)}
+                    onDrop={(e) => handleCanvasDrop(e, idx)}
+                  />
 
-                <FieldCard
-                  field={field}
-                  onChange={(patch) => patchField(field.id, patch)}
-                  onRemove={() => removeField(field.id)}
-                  onDragStart={(e) => handleFieldDragStart(e, field.id)}
-                  isDragging={dragId === field.id}
-                />
-              </div>
-            ))}
+                  <FieldCard
+                    field={field}
+                    onChange={(patch) => patchField(field.id, patch)}
+                    onRemove={() => removeField(field.id)}
+                    onDragStart={(e) => handleFieldDragStart(e, field.id)}
+                    onDragEnd={resetDragState}
+                    isDragging={dragId === field.id}
+                  />
+                </motion.div>
+              ))}
+            </AnimatePresence>
 
             {/* Drop zone at bottom */}
-            <DropIndicator
-              active={dragOverIdx === schema.fields.length && canvasOver}
-              onDragOver={(e) => handleCanvasDragOver(e, schema.fields.length)}
-              onDrop={(e) => handleCanvasDrop(e, schema.fields.length)}
-            />
+            <motion.div layout>
+              <DropIndicator
+                active={dragOverIdx === schema.fields.length && canvasOver}
+                isDraggingAny={isDraggingAny}
+                onDragOver={(e) => handleCanvasDragOver(e, schema.fields.length)}
+                onDrop={(e) => handleCanvasDrop(e, schema.fields.length)}
+              />
+            </motion.div>
 
             {/* Bottom add strip */}
             <div
@@ -341,6 +376,7 @@ function PaletteTile({
   onMouseEnter,
   onMouseLeave,
   onDragStart,
+  onDragEnd,
   onDoubleClick,
 }: {
   def: FieldTypeDef;
@@ -348,12 +384,14 @@ function PaletteTile({
   onMouseEnter: () => void;
   onMouseLeave: () => void;
   onDragStart: (e: React.DragEvent) => void;
+  onDragEnd: () => void;
   onDoubleClick: () => void;
 }) {
   return (
     <div
       draggable
       onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
       onDoubleClick={onDoubleClick}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
@@ -435,19 +473,34 @@ function EmptyCanvas({
 
 function DropIndicator({
   active,
+  isDraggingAny,
   onDragOver,
   onDrop,
 }: {
   active: boolean;
+  isDraggingAny: boolean;
   onDragOver: (e: React.DragEvent) => void;
   onDrop: (e: React.DragEvent) => void;
 }) {
   return (
     <div
-      className={cn("h-2 mx-1 rounded-full transition-all duration-150", active ? "bg-primary/60 h-1" : "")}
+      className={cn(
+        "relative mx-1 flex items-center transition-all duration-150",
+        isDraggingAny ? "h-8" : "h-1",
+      )}
       onDragOver={onDragOver}
       onDrop={onDrop}
-    />
+    >
+      <div
+        className={cn(
+          "absolute inset-x-0 top-1/2 -translate-y-1/2 rounded-full transition-all duration-150",
+          active ? "h-0.5 bg-primary shadow-[0_0_6px_1px] shadow-primary/50" : "h-px bg-transparent",
+        )}
+      />
+      {active && (
+        <div className="absolute left-0 top-1/2 -translate-y-1/2 h-2.5 w-2.5 rounded-full bg-primary border-2 border-background shadow-sm" />
+      )}
+    </div>
   );
 }
 
@@ -458,17 +511,20 @@ function FieldCard({
   onChange,
   onRemove,
   onDragStart,
+  onDragEnd,
   isDragging,
 }: {
   field: FormField;
   onChange: (patch: Partial<FormField>) => void;
   onRemove: () => void;
   onDragStart: (e: React.DragEvent) => void;
+  onDragEnd: () => void;
   isDragging: boolean;
 }) {
   const def = TYPE_MAP.get(field.type)!;
   const [editingLabel, setEditingLabel] = useState(false);
   const labelRef = useRef<HTMLInputElement>(null);
+  const cardRef = useRef<HTMLDivElement>(null);
 
   function handleLabelClick() {
     setEditingLabel(true);
@@ -477,8 +533,11 @@ function FieldCard({
 
   return (
     <div
-      draggable
+      ref={cardRef}
+      draggable={false}
       onDragStart={onDragStart}
+      onDragEnd={() => { if (cardRef.current) cardRef.current.draggable = false; onDragEnd(); }}
+      onDragOver={(e) => e.preventDefault()}
       className={cn(
         "rounded-xl border bg-background shadow-sm mb-2 overflow-hidden transition-all group",
         isDragging ? "opacity-40 scale-[0.98] border-primary/40" : "border-border/60 hover:border-border hover:shadow-md",
@@ -493,7 +552,7 @@ function FieldCard({
           <button
             type="button"
             className="mt-0.5 cursor-grab text-muted-foreground/30 hover:text-muted-foreground/60 transition-colors shrink-0 touch-none"
-            onMouseDown={(e) => e.stopPropagation()}
+            onMouseDown={() => { if (cardRef.current) cardRef.current.draggable = true; }}
           >
             <GripVertical className="h-4 w-4" />
           </button>
@@ -561,27 +620,70 @@ function FieldCard({
           </div>
         </div>
 
-        {/* Live preview */}
-        <div className="mt-3 ml-7 pointer-events-none select-none">
-          <FieldPreview field={field} onChange={onChange} />
+        {/* Help text */}
+        <div className="mt-2 ml-7">
+          <Input
+            className="text-xs bg-background-soft h-7 text-muted-foreground placeholder:text-muted-foreground/30"
+            value={field.helpText ?? ""}
+            onChange={(e) => onChange({ helpText: e.target.value || undefined })}
+            placeholder="Help text (optional)"
+          />
         </div>
 
         {/* Options editor for dropdown/checkbox */}
         {(field.type === "dropdown" || field.type === "checkbox") && (
-          <div className="mt-3 ml-7 pointer-events-auto">
-            <Label className="text-[10px] uppercase tracking-wider text-muted-foreground/60 mb-1 block">
-              Options (comma-separated)
-            </Label>
-            <Input
-              className="text-xs bg-background-soft h-7"
-              value={(field.options ?? []).join(", ")}
-              onChange={(e) =>
-                onChange({
-                  options: e.target.value.split(",").map((s) => s.trim()).filter(Boolean),
-                })
-              }
-              placeholder="Option 1, Option 2, Option 3"
-            />
+          <div className="mt-2 ml-7 space-y-1">
+            {(field.options ?? []).map((opt, i) => (
+              <div key={i} className="flex items-center gap-1">
+                <Input
+                  className="text-xs bg-background-soft h-7 flex-1"
+                  value={opt}
+                  onChange={(e) => {
+                    const next = [...(field.options ?? [])];
+                    next[i] = e.target.value;
+                    onChange({ options: next });
+                  }}
+                  onKeyDown={(e) => {
+                    e.stopPropagation();
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      const next = [...(field.options ?? [])];
+                      next.splice(i + 1, 0, "");
+                      onChange({ options: next });
+                    }
+                    if (e.key === "Backspace" && opt === "" && (field.options ?? []).length > 1) {
+                      e.preventDefault();
+                      const next = [...(field.options ?? [])];
+                      next.splice(i, 1);
+                      onChange({ options: next });
+                    }
+                  }}
+                  onPaste={(e) => e.stopPropagation()}
+                  onCut={(e) => e.stopPropagation()}
+                  onCopy={(e) => e.stopPropagation()}
+                  placeholder={`Option ${i + 1}`}
+                  autoFocus={opt === "" && i > 0}
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = (field.options ?? []).filter((_, j) => j !== i);
+                    onChange({ options: next.length ? next : [""] });
+                  }}
+                  className="p-1 rounded text-muted-foreground/40 hover:text-destructive hover:bg-destructive/10 transition-colors shrink-0"
+                >
+                  <Trash2 className="h-3 w-3" />
+                </button>
+              </div>
+            ))}
+            <button
+              type="button"
+              onClick={() => onChange({ options: [...(field.options ?? []), ""] })}
+              className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-primary transition-colors mt-0.5"
+            >
+              <Plus className="h-3 w-3" />
+              Add option
+            </button>
           </div>
         )}
       </div>

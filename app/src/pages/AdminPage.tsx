@@ -10,6 +10,7 @@ import {
   KeyRound,
   Loader2,
   Lock,
+  MessageSquare,
   Pencil,
   Send,
   Share2,
@@ -107,6 +108,16 @@ export function AdminPage() {
   const [autoDecrypting, setAutoDecrypting] = useState(false);
   const [decryptError, setDecryptError] = useState<string | null>(null);
   const attemptedAutoDecryptIds = useRef(new Set<string>());
+  const commentsKey = `triager-comments-${formId ?? ""}`;
+  const [comments, setComments] = useState<Record<string, string>>(() => {
+    try { return JSON.parse(localStorage.getItem(commentsKey) ?? "{}"); } catch { return {}; }
+  });
+  const saveComment = (submissionId: string, text: string) => {
+    const next = { ...comments, [submissionId]: text };
+    if (!text) delete next[submissionId];
+    setComments(next);
+    localStorage.setItem(commentsKey, JSON.stringify(next));
+  };
   const account = useCurrentAccount();
   const client = useSuiClient();
   const { mutateAsync: signPersonalMessage } = useSignPersonalMessage();
@@ -252,8 +263,10 @@ export function AdminPage() {
     let cancelled = false;
 
     async function loadSubmissions() {
-      const indexed = await readSubmissions(formId ?? "");
-      const onchain = await readOnchainSubmissions(client, formId ?? "", activeFormMeta?.policyType ?? 0);
+      const [indexed, onchain] = await Promise.all([
+        readSubmissions(formId ?? ""),
+        readOnchainSubmissions(client, formId ?? "", activeFormMeta?.policyType ?? 0).catch(() => [] as StoredSubmissionRecord[]),
+      ]);
       const indexedIds = new Set(indexed.map((submission) => submission.id));
       const missing = onchain.filter((submission) => !indexedIds.has(submission.id));
       await Promise.all(missing.map((s) => saveSubmission(s, activeFormMeta?.owner)));
@@ -439,6 +452,12 @@ export function AdminPage() {
   }, [account?.address, activeFormMeta?.policyObjectId, activeFormMeta?.policyType, client, isFormOwner]);
 
   const isTriager = isAllowlistMember && !isFormOwner;
+  const isReviewer =
+    isTriager &&
+    formPolicy.kind === "allowlist" &&
+    account?.address != null &&
+    (formPolicy.memberRoles?.[account.address] ?? "admin") === "reviewer";
+  const canTriage = isFormOwner || (isTriager && !isReviewer);
   const schemaForExport = schema ?? resolvedLocalForm?.schema ?? { version: 1, title: pageTitle, fields: [] };
 
   const filtered = useMemo(
@@ -930,29 +949,32 @@ export function AdminPage() {
                     </span>
                   )}
                 </div>
-                <div className="flex items-center gap-2 justify-start">
+                <div className="flex items-center gap-2 justify-start" onClick={(e) => e.stopPropagation()}>
                   {deliveries[row.submissionId] ? (
                     <Badge tone="secondary">{deliveries[row.submissionId]} sent</Badge>
                   ) : null}
-                  {!row.decrypted && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      leftIcon={<Eye className="h-3.5 w-3.5" />}
-                      disabled={autoDecrypting || decryptingId === row.submissionId}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        void decryptRow(row);
-                      }}
-                    >
-                      {autoDecrypting || decryptingId === row.submissionId ? "Decrypting..." : "Decrypt"}
-                    </Button>
-                  )}
+                  <div className="relative flex-1 min-w-0">
+                    <MessageSquare className={cn(
+                      "absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 pointer-events-none",
+                      comments[row.submissionId] ? "text-primary" : "text-muted-foreground/40",
+                    )} />
+                    <input
+                      type="text"
+                      className="w-full pl-6 pr-2 py-1 text-xs rounded border border-border/60 bg-background-soft placeholder:text-muted-foreground/30 focus:outline-none focus:ring-1 focus:ring-primary/40 focus:border-primary/40"
+                      placeholder="Add note…"
+                      value={comments[row.submissionId] ?? ""}
+                      onChange={(e) => saveComment(row.submissionId, e.target.value)}
+                    />
+                  </div>
                   <ChevronDown
                     className={cn(
-                      "h-4 w-4 text-muted-foreground transition-transform",
+                      "h-4 w-4 text-muted-foreground transition-transform shrink-0",
                       openId === row.submissionId && "rotate-180",
                     )}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setOpenId(openId === row.submissionId ? null : row.submissionId);
+                    }}
                   />
                 </div>
               </div>
@@ -963,6 +985,8 @@ export function AdminPage() {
                   onTransition={(s) => transition(row, s)}
                   onForward={() => forwardWebhooks(row)}
                   isFormOwner={isFormOwner}
+                  isReviewer={isReviewer}
+                  canTriage={canTriage}
                   formObjectId={isObjectId(formId) ? formId : undefined}
                   formOwner={activeFormMeta?.owner}
                   onReceiptMinted={handleReceiptMinted}
@@ -1166,6 +1190,8 @@ function Drawer({
   onTransition,
   onForward,
   isFormOwner,
+  isReviewer,
+  canTriage,
   formObjectId,
   formOwner,
   onReceiptMinted,
@@ -1176,6 +1202,8 @@ function Drawer({
   onTransition: (s: number) => void;
   onForward: () => void;
   isFormOwner: boolean;
+  isReviewer: boolean;
+  canTriage: boolean;
   formObjectId: string | undefined;
   formOwner: string | undefined;
   onReceiptMinted: (submissionId: string, receiptObjectId: string) => void;
@@ -1510,7 +1538,7 @@ function Drawer({
                   {SEVERITY_LABELS.map((label, i) => {
                     const amount = parsedTiers ? tierAmountForSeverity(parsedTiers, i) : null;
                     const active = severity === i;
-                    const locked = !isFormOwner || row.status === 3;
+                    const locked = !canTriage || row.status === 3;
                     return (
                       <button
                         key={label}
@@ -1562,7 +1590,7 @@ function Drawer({
               </label>
               <Select
                 value={row.status}
-                disabled={!isFormOwner}
+                disabled={!canTriage}
                 onChange={(e) => onTransition(Number(e.target.value))}
               >
                 {STATUS.map((s, i) =>

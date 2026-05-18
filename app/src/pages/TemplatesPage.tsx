@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { FilePlus, Sparkles, Bug, Coins, Users2 } from "lucide-react";
+import { FilePlus, Sparkles, Bug, Coins, Users2, Trophy } from "lucide-react";
 
 import { AppShell, PageHeader } from "@/components/layout/AppShell";
 import { Card } from "@/components/ui/card";
@@ -11,6 +11,7 @@ const CATEGORY_ICON: Record<FormTemplate["category"], typeof Sparkles> = {
   bounty: Bug,
   grants: Coins,
   hiring: Users2,
+  sessions: Trophy,
 };
 
 export function TemplatesPage() {
