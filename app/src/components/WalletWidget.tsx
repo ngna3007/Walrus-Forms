@@ -78,7 +78,7 @@ export function WalletWidget() {
           <span className="block font-mono text-xs truncate">{truncateAddr(account.address)}</span>
           <span className="flex items-center gap-1.5 text-[10px] text-muted-foreground uppercase tracking-widest">
             <StatusDot tone="secondary" />
-            Testnet
+            {NETWORK === "mainnet" ? "Mainnet" : "Testnet"}
           </span>
         </span>
       </button>
