@@ -3,5 +3,6 @@
   "buildCommand": "npm run build --workspace=walrus-forms-app",
   "installCommand": "npm install --include-workspace-root",
   "outputDirectory": "app/dist",
-  "framework": "vite"
+  "framework": "vite",
+  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
 }
