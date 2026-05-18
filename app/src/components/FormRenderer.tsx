@@ -134,7 +134,7 @@ export function FormRenderer({
       <div>
         <h2 className="font-serif italic text-3xl tracking-tight">{schema.title}</h2>
         {schema.description && (
-          <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{schema.description}</p>
+          <p className="mt-2 text-sm leading-relaxed text-muted-foreground break-words">{schema.description}</p>
         )}
       </div>
 
@@ -467,7 +467,7 @@ function FieldInput({
           {(field.options ?? []).map((o) => {
             const selected = value?.type === "checkbox" ? value.value.includes(o) : false;
             return (
-              <label key={o} className="inline-flex items-center gap-2 text-sm">
+              <label key={o} className="inline-flex items-start gap-2 text-sm break-words">
                 <input
                   type="checkbox"
                   className="accent-primary"
