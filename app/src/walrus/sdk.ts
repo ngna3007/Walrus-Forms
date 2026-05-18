@@ -1,6 +1,6 @@
 import { SuiGrpcClient } from "@mysten/sui/grpc";
 import type { Transaction } from "@mysten/sui/transactions";
-import { walrus, WalrusFile } from "@mysten/walrus";
+import { walrus } from "@mysten/walrus";
 
 import { FULLNODE_URL, NETWORK, WALRUS_DEFAULT_EPOCHS } from "../config";
 
@@ -73,31 +73,33 @@ export async function writeFilesWithWallet({
 }: WriteFilesArgs): Promise<WriteFilesResult[]> {
   const client = getWalrusSdkClient();
 
-  const walrusFiles = files.map((f) =>
-    WalrusFile.from({ contents: f.contents, identifier: f.identifier }),
+  // Use writeBlobFlow per file (raw blob, no quilt wrapping) so blobIds are
+  // plain blob IDs readable by HTTP aggregators and readJson.
+  return Promise.all(
+    files.map(async (file) => {
+      const flow = client.walrus.writeBlobFlow({ blob: file.contents });
+
+      const encoded = await flow.encode();
+
+      const registerTx = flow.register({ epochs, owner, deletable });
+      const registerResult = await signAndExecute({ transaction: registerTx });
+      const registerDigest = (registerResult as { digest?: string })?.digest;
+
+      await flow.upload({ digest: registerDigest });
+
+      const certifyTx = flow.certify();
+      if (augmentCertifyTx) augmentCertifyTx(encoded.blobId, certifyTx);
+      const certifyTxResult = await signAndExecute({ transaction: certifyTx });
+
+      const blob = await flow.getBlob();
+      return {
+        blobId: blob.blobId,
+        objectId: blob.blobObjectId,
+        identifier: file.identifier,
+        certifyTxResult,
+      };
+    }),
   );
-
-  const flow = client.walrus.writeFilesFlow({ files: walrusFiles });
-
-  const encoded = await flow.encode();
-
-  const registerTx = flow.register({ epochs, owner, deletable });
-  const registerResult = await signAndExecute({ transaction: registerTx });
-  const registerDigest = (registerResult as { digest?: string })?.digest;
-
-  await flow.upload({ digest: registerDigest });
-
-  const certifyTx = flow.certify();
-  if (augmentCertifyTx) augmentCertifyTx(encoded.blobId, certifyTx);
-  const certifyTxResult = await signAndExecute({ transaction: certifyTx });
-
-  const listed = await flow.listFiles();
-  return listed.map((entry, idx) => ({
-    blobId: entry.blobId,
-    objectId: entry.id,
-    identifier: files[idx]?.identifier ?? "",
-    certifyTxResult,
-  }));
 }
 
 /** Read a blob through the SDK. Slower than aggregator HTTP but no aggregator trust. */
