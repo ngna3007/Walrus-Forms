@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ArrowLeft, Bell, Gift, Globe, Lock, Clock, Coins, Send, ExternalLink, Vote, Eye, Pencil, Sparkles } from "lucide-react";
 import { useCurrentAccount, useSignAndExecuteTransaction, useSuiClient } from "@mysten/dapp-kit";
@@ -817,6 +817,16 @@ function memberEntries(policy: FormPolicy): MemberEntry[] {
 function PolicyDetails({ policy, setPolicy }: { policy: FormPolicy; setPolicy: (p: FormPolicy) => void }) {
   const [savedAllowlists, setSavedAllowlists] = useState<SavedAllowlist[]>([]);
   const [draftMembers, setDraftMembers] = useState("");
+  const [localRows, setLocalRows] = useState<MemberEntry[]>(() => memberEntries(policy));
+
+  // Sync localRows when policy changes externally (e.g. import from saved list)
+  const prevPolicyRef = useRef(policy);
+  useEffect(() => {
+    if (prevPolicyRef.current !== policy) {
+      prevPolicyRef.current = policy;
+      setLocalRows(memberEntries(policy));
+    }
+  }, [policy]);
 
   useEffect(() => {
     let cancelled = false;
@@ -848,7 +858,7 @@ function PolicyDetails({ policy, setPolicy }: { policy: FormPolicy; setPolicy: (
 
             {/* Per-address row editor */}
             <div className="mt-3 space-y-2">
-              {memberEntries(policy).map((entry, i) => (
+              {localRows.map((entry, i) => (
                 <div key={i} className="flex items-center gap-2">
                   <input
                     className="flex-1 h-8 rounded-lg border border-border bg-background px-3 font-mono text-xs placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/40"
@@ -856,10 +866,10 @@ function PolicyDetails({ policy, setPolicy }: { policy: FormPolicy; setPolicy: (
                     value={entry.address}
                     onChange={(e) => {
                       if (policy.kind !== "allowlist") return;
-                      const entries = memberEntries(policy);
-                      entries[i] = { ...entries[i], address: e.target.value };
-                      const members = entries.map((en) => en.address).filter(Boolean);
-                      const memberRoles = Object.fromEntries(entries.filter((en) => en.address).map((en) => [en.address, en.role]));
+                      const next = localRows.map((r, j) => j === i ? { ...r, address: e.target.value } : r);
+                      setLocalRows(next);
+                      const members = next.map((r) => r.address).filter(Boolean);
+                      const memberRoles = Object.fromEntries(next.filter((r) => r.address).map((r) => [r.address, r.role]));
                       setPolicy({ ...policy, members, memberRoles, allowlistObjectId: "" });
                     }}
                   />
@@ -868,9 +878,9 @@ function PolicyDetails({ policy, setPolicy }: { policy: FormPolicy; setPolicy: (
                     value={entry.role}
                     onChange={(e) => {
                       if (policy.kind !== "allowlist") return;
-                      const entries = memberEntries(policy);
-                      entries[i] = { ...entries[i], role: e.target.value as "admin" | "reviewer" };
-                      const memberRoles = Object.fromEntries(entries.filter((en) => en.address).map((en) => [en.address, en.role]));
+                      const next = localRows.map((r, j) => j === i ? { ...r, role: e.target.value as "admin" | "reviewer" } : r);
+                      setLocalRows(next);
+                      const memberRoles = Object.fromEntries(next.filter((r) => r.address).map((r) => [r.address, r.role]));
                       setPolicy({ ...policy, memberRoles, allowlistObjectId: "" });
                     }}
                   >
@@ -881,9 +891,10 @@ function PolicyDetails({ policy, setPolicy }: { policy: FormPolicy; setPolicy: (
                     type="button"
                     onClick={() => {
                       if (policy.kind !== "allowlist") return;
-                      const entries = memberEntries(policy).filter((_, j) => j !== i);
-                      const members = entries.map((en) => en.address).filter(Boolean);
-                      const memberRoles = Object.fromEntries(entries.filter((en) => en.address).map((en) => [en.address, en.role]));
+                      const next = localRows.filter((_, j) => j !== i);
+                      setLocalRows(next);
+                      const members = next.map((r) => r.address).filter(Boolean);
+                      const memberRoles = Object.fromEntries(next.filter((r) => r.address).map((r) => [r.address, r.role]));
                       setPolicy({ ...policy, members, memberRoles, allowlistObjectId: "" });
                     }}
                     className="p-1 rounded text-muted-foreground/40 hover:text-destructive hover:bg-destructive/10 transition-colors shrink-0"
@@ -896,11 +907,7 @@ function PolicyDetails({ policy, setPolicy }: { policy: FormPolicy; setPolicy: (
                 type="button"
                 onClick={() => {
                   if (policy.kind !== "allowlist") return;
-                  const entries = [...memberEntries(policy), { address: "", role: "admin" as const }];
-                  setPolicy({ ...policy, allowlistObjectId: "" });
-                  const members = entries.map((en) => en.address).filter(Boolean);
-                  const memberRoles = Object.fromEntries(entries.filter((en) => en.address).map((en) => [en.address, en.role]));
-                  setPolicy({ ...policy, members, memberRoles, allowlistObjectId: "" });
+                  setLocalRows((prev) => [...prev, { address: "", role: "admin" }]);
                 }}
                 className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition-colors mt-1"
               >
@@ -918,14 +925,14 @@ function PolicyDetails({ policy, setPolicy }: { policy: FormPolicy; setPolicy: (
                   onChange={(e) => {
                     const selected = savedAllowlists.find((list) => list.id === e.target.value);
                     if (!selected || policy.kind !== "allowlist") return;
-                    const existing = memberEntries(policy);
-                    const existingAddrs = new Set(existing.map((en) => en.address));
+                    const existingAddrs = new Set(localRows.map((r) => r.address));
                     const toAdd: MemberEntry[] = selected.members
                       .filter((m) => !existingAddrs.has(m))
                       .map((m) => ({ address: m, role: "admin" as const }));
-                    const entries = [...existing, ...toAdd];
-                    const members = entries.map((en) => en.address).filter(Boolean);
-                    const memberRoles = Object.fromEntries(entries.filter((en) => en.address).map((en) => [en.address, en.role]));
+                    const next = [...localRows.filter((r) => r.address), ...toAdd];
+                    setLocalRows(next);
+                    const members = next.map((r) => r.address).filter(Boolean);
+                    const memberRoles = Object.fromEntries(next.filter((r) => r.address).map((r) => [r.address, r.role]));
                     setPolicy({ ...policy, allowlistId: selected.id, allowlistName: selected.name, members, memberRoles, allowlistObjectId: "" });
                   }}
                 >
