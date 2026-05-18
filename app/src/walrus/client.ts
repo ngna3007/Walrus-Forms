@@ -4,13 +4,15 @@ import {
   WALRUS_PUBLISHER_URL,
   WALRUS_USE_SDK,
 } from "../config";
-import { readBlobViaSdk, writeFilesWithWallet, type SignAndExecute } from "./sdk";
+import { readBlobViaSdk, writeFilesWithWallet, type AugmentCertifyTx, type SignAndExecute } from "./sdk";
 
 export type StoreResult = {
   blobId: string;
   suiObjectId?: string;
   endEpoch?: number;
   startEpoch?: number;
+  /** Certify tx result when using SDK mode with augmentCertifyTx. */
+  certifyTxResult?: unknown;
 };
 
 export interface StoreOptions {
@@ -18,6 +20,7 @@ export interface StoreOptions {
   signAndExecute?: SignAndExecute;
   owner?: string;
   identifier?: string;
+  augmentCertifyTx?: AugmentCertifyTx;
 }
 
 // ---------------------------------------------------------------------------
@@ -98,8 +101,9 @@ export async function storeBlob(data: Uint8Array, opts: StoreOptions = {}): Prom
       owner: opts.owner,
       epochs,
       signAndExecute: opts.signAndExecute,
+      augmentCertifyTx: opts.augmentCertifyTx,
     });
-    return { blobId: file.blobId, suiObjectId: file.objectId };
+    return { blobId: file.blobId, suiObjectId: file.objectId, certifyTxResult: file.certifyTxResult };
   }
 
   return storeBlobViaPublisher(data, epochs);

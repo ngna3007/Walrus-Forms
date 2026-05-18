@@ -34,6 +34,9 @@ export function getWalrusSdkClient() {
 
 export type SignAndExecute = (args: { transaction: Transaction }) => Promise<unknown>;
 
+/** Called with the certify tx before it is signed. Add extra Move calls to merge them into one popup. */
+export type AugmentCertifyTx = (blobId: string, tx: Transaction) => void;
+
 export interface WriteFilesArgs {
   files: { contents: Uint8Array; identifier: string }[];
   /** Address that will own the resulting Walrus `Blob` NFTs. Usually the connected wallet. */
@@ -41,12 +44,16 @@ export interface WriteFilesArgs {
   epochs?: number;
   deletable?: boolean;
   signAndExecute: SignAndExecute;
+  /** Optional: inject extra Move calls into the certify tx to merge certify + other ops into one popup. */
+  augmentCertifyTx?: AugmentCertifyTx;
 }
 
 export interface WriteFilesResult {
   blobId: string;
   objectId: string;
   identifier: string;
+  /** Result of the certify transaction (includes any augmented calls). */
+  certifyTxResult: unknown;
 }
 
 /**
@@ -62,6 +69,7 @@ export async function writeFilesWithWallet({
   epochs = WALRUS_DEFAULT_EPOCHS,
   deletable = false,
   signAndExecute,
+  augmentCertifyTx,
 }: WriteFilesArgs): Promise<WriteFilesResult[]> {
   const client = getWalrusSdkClient();
 
@@ -71,7 +79,7 @@ export async function writeFilesWithWallet({
 
   const flow = client.walrus.writeFilesFlow({ files: walrusFiles });
 
-  await flow.encode();
+  const encoded = await flow.encode();
 
   const registerTx = flow.register({ epochs, owner, deletable });
   const registerResult = await signAndExecute({ transaction: registerTx });
@@ -80,13 +88,15 @@ export async function writeFilesWithWallet({
   await flow.upload({ digest: registerDigest });
 
   const certifyTx = flow.certify();
-  await signAndExecute({ transaction: certifyTx });
+  if (augmentCertifyTx) augmentCertifyTx(encoded.blobId, certifyTx);
+  const certifyTxResult = await signAndExecute({ transaction: certifyTx });
 
   const listed = await flow.listFiles();
   return listed.map((entry, idx) => ({
     blobId: entry.blobId,
     objectId: entry.id,
     identifier: files[idx]?.identifier ?? "",
+    certifyTxResult,
   }));
 }
 

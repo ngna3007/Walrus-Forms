@@ -365,48 +365,122 @@ export function BuilderPage() {
         throw new Error("Enter a gate object id before publishing a token-gated form.");
       }
 
-      // SDK upload mode = user pays own Walrus storage in WAL. If the wallet is
-      // short, run a SUI→WAL swap as a separate prep tx before kicking off the
-      // writeFilesFlow inside storeBlob. Publisher HTTP mode skips this (the
-      // publisher pays).
-      if (WALRUS_USE_SDK && exchangeAvailable()) {
-        try {
-          const estimate = await estimateStorageCost(schemaBytes.byteLength, storageEpochs);
-          const prepTx = new Transaction();
-          const swapped = await ensureWalSwap(client, account.address, estimate.totalFrost, prepTx);
-          if (swapped.walCoin) {
-            prepTx.transferObjects([swapped.walCoin], prepTx.pure.address(account.address));
-            await signAndExecute({ transaction: prepTx });
-          }
-        } catch (swapErr) {
-          // Non-fatal — if swap fails we still try the write; user just gets a
-          // wallet-side "insufficient WAL" error if they really were short.
-          console.warn("SUI→WAL pre-flight swap skipped", swapErr);
-        }
-      }
-
-      const { blobId } = await storeBlob(schemaBytes, {
+      // In SDK mode, inject form-creation calls into the certify tx so register
+      // + [relay upload] + certify+form = 2 wallet popups instead of 3.
+      // In publisher mode (testnet), augmentCertifyTx is undefined and form
+      // creation runs as a separate tx below (existing path).
+      const storeResult = await storeBlob(schemaBytes, {
         epochs: storageEpochs,
         signAndExecute: WALRUS_USE_SDK ? signAndExecute : undefined,
         owner: WALRUS_USE_SDK ? account.address : undefined,
+        augmentCertifyTx: WALRUS_USE_SDK
+          ? (resolvedBlobId, certifyTx) => {
+              if (editingPublishedFormId) {
+                certifyTx.moveCall({
+                  target: `${PACKAGE_ID}::form_registry::update_form`,
+                  arguments: [
+                    certifyTx.object(editingPublishedFormId),
+                    certifyTx.pure.string(schema.title),
+                    certifyTx.pure.string(resolvedBlobId),
+                  ],
+                });
+              } else if (policy.kind === "allowlist") {
+                const listArg = certifyTx.moveCall({
+                  target: `${PACKAGE_ID}::seal_policies::new_allowlist`,
+                  arguments: [],
+                });
+                for (const member of allowlistMembers) {
+                  certifyTx.moveCall({
+                    target: `${PACKAGE_ID}::seal_policies::add_member`,
+                    arguments: [listArg, certifyTx.pure.address(member)],
+                  });
+                }
+                certifyTx.moveCall({
+                  target: `${PACKAGE_ID}::form_registry::create_form_with_allowlist`,
+                  arguments: [
+                    certifyTx.pure.string(schema.title),
+                    certifyTx.pure.string(resolvedBlobId),
+                    listArg,
+                  ],
+                });
+              } else {
+                const policyObjectId =
+                  policy.kind === "tokenGated" ? objectIdToBytes(policy.gateObjectId) : [];
+                certifyTx.moveCall({
+                  target: `${PACKAGE_ID}::form_registry::create_form`,
+                  arguments: [
+                    certifyTx.pure.string(schema.title),
+                    certifyTx.pure.string(resolvedBlobId),
+                    certifyTx.pure.u8(policy.kind === "timelock" ? 2 : policy.kind === "tokenGated" ? 3 : 0),
+                    certifyTx.pure.vector("u8", policyObjectId),
+                    certifyTx.pure.u64(policy.kind === "timelock" ? policy.unlockTimeMs : 0),
+                  ],
+                });
+              }
+            }
+          : undefined,
       });
 
-      // ── Edit mode ────────────────────────────────────────────────────────
-      // If we're editing a published Form, do an in-place update instead of
-      // creating a new Form. Saves a Sui object creation; Walrus already
-      // deduplicates the schema blob when content is unchanged.
+      const { blobId } = storeResult;
+
+      // Use the certify tx result (SDK mode) or run a separate form creation tx
+      // (publisher mode / testnet).
+      let result: unknown = storeResult.certifyTxResult;
+      if (!WALRUS_USE_SDK) {
+        // ── Publisher mode: separate form creation tx ────────────────────────
+        if (editingPublishedFormId) {
+          const updateTx = new Transaction();
+          updateTx.moveCall({
+            target: `${PACKAGE_ID}::form_registry::update_form`,
+            arguments: [
+              updateTx.object(editingPublishedFormId),
+              updateTx.pure.string(schema.title),
+              updateTx.pure.string(blobId),
+            ],
+          });
+          result = await signAndExecute({ transaction: updateTx });
+        } else {
+          const tx = new Transaction();
+          if (policy.kind === "allowlist") {
+            const listArg = tx.moveCall({
+              target: `${PACKAGE_ID}::seal_policies::new_allowlist`,
+              arguments: [],
+            });
+            for (const member of allowlistMembers) {
+              tx.moveCall({
+                target: `${PACKAGE_ID}::seal_policies::add_member`,
+                arguments: [listArg, tx.pure.address(member)],
+              });
+            }
+            tx.moveCall({
+              target: `${PACKAGE_ID}::form_registry::create_form_with_allowlist`,
+              arguments: [
+                tx.pure.string(schema.title),
+                tx.pure.string(blobId),
+                listArg,
+              ],
+            });
+          } else {
+            const policyObjectId =
+              policy.kind === "tokenGated" ? objectIdToBytes(policy.gateObjectId) : [];
+            tx.moveCall({
+              target: `${PACKAGE_ID}::form_registry::create_form`,
+              arguments: [
+                tx.pure.string(schema.title),
+                tx.pure.string(blobId),
+                tx.pure.u8(policy.kind === "timelock" ? 2 : policy.kind === "tokenGated" ? 3 : 0),
+                tx.pure.vector("u8", policyObjectId),
+                tx.pure.u64(policy.kind === "timelock" ? policy.unlockTimeMs : 0),
+              ],
+            });
+          }
+          result = await signAndExecute({ transaction: tx });
+        }
+      }
+
+      // ── Edit mode post-processing ─────────────────────────────────────────
       if (editingPublishedFormId) {
-        const updateTx = new Transaction();
-        updateTx.moveCall({
-          target: `${PACKAGE_ID}::form_registry::update_form`,
-          arguments: [
-            updateTx.object(editingPublishedFormId),
-            updateTx.pure.string(schema.title),
-            updateTx.pure.string(blobId),
-          ],
-        });
-        const updateResult = await signAndExecute({ transaction: updateTx });
-        setLastDigest(updateResult.digest ?? null);
+        setLastDigest((result as { digest?: string })?.digest ?? null);
         setLastFormId(editingPublishedFormId);
         await saveLocalForm({
           id: editingPublishedFormId,
@@ -422,62 +496,20 @@ export function BuilderPage() {
         return;
       }
 
-      const tx = new Transaction();
-
-      if (policy.kind === "allowlist") {
-        // Single PTB: create the Allowlist as a returned value, add every member
-        // to it, then hand it off to `create_form_with_allowlist` which derives
-        // the policy object id from the just-created Allowlist and shares both.
-        // One wallet popup instead of two.
-        const listArg = tx.moveCall({
-          target: `${PACKAGE_ID}::seal_policies::new_allowlist`,
-          arguments: [],
-        });
-        for (const member of allowlistMembers) {
-          tx.moveCall({
-            target: `${PACKAGE_ID}::seal_policies::add_member`,
-            arguments: [listArg, tx.pure.address(member)],
-          });
-        }
-        tx.moveCall({
-          target: `${PACKAGE_ID}::form_registry::create_form_with_allowlist`,
-          arguments: [
-            tx.pure.string(schema.title),
-            tx.pure.string(blobId),
-            listArg,
-          ],
-        });
-      } else {
-        const policyObjectId =
-          policy.kind === "tokenGated" ? objectIdToBytes(policy.gateObjectId) : [];
-        tx.moveCall({
-          target: `${PACKAGE_ID}::form_registry::create_form`,
-          arguments: [
-            tx.pure.string(schema.title),
-            tx.pure.string(blobId),
-            tx.pure.u8(policy.kind === "timelock" ? 2 : policy.kind === "tokenGated" ? 3 : 0),
-            tx.pure.vector("u8", policyObjectId),
-            tx.pure.u64(policy.kind === "timelock" ? policy.unlockTimeMs : 0),
-          ],
-        });
-      }
-
-      const result = await signAndExecute({ transaction: tx });
-      const formId = extractPublishedFormId(result);
+      const typedResult = result as import("@mysten/sui/jsonRpc").SuiTransactionBlockResponse;
+      const formId = extractPublishedFormId(typedResult);
       if (!formId) {
         throw new Error("Published transaction succeeded, but the created Form object id was not returned.");
       }
 
-      // Capture the just-created Allowlist object id so the saved policy is
-      // usable for decrypt without round-tripping to the chain.
       let policyToSave: FormPolicy = policy;
       if (policy.kind === "allowlist") {
         const allowlistObjectId =
-          extractCreatedObjectId(result, `${PACKAGE_ID}::seal_policies::Allowlist`) ?? "";
+          extractCreatedObjectId(typedResult, `${PACKAGE_ID}::seal_policies::Allowlist`) ?? "";
         policyToSave = { ...policy, allowlistObjectId };
       }
 
-      setLastDigest(result.digest ?? null);
+      setLastDigest((result as { digest?: string })?.digest ?? null);
       setLastFormId(formId);
       await saveLocalForm({
         id: formId,
