@@ -175,6 +175,8 @@ export function SubmitPage() {
       payload: submissionPayload,
       fileBlobIds,
       createReputation: Boolean(schema.reputation?.enabled),
+      signAndExecute,
+      owner: account.address,
     });
     let result: SuiTransactionBlockResponse;
     // Only attempt the sponsored path when both toggles are on AND the sponsor URL
@@ -333,6 +335,8 @@ export function SubmitPage() {
                 onDisconnect={account?.address ? () => disconnect() : undefined}
                 footerNote={sponsorEnabled ? "Submit transaction is sponsored using Enoki" : undefined}
                 onSubmit={handleSubmit}
+                walrusSignAndExecute={signAndExecute}
+                walrusOwner={account?.address}
               />
             )}
             </div>{/* /inner padding */}

@@ -3,6 +3,7 @@ import { Transaction } from "@mysten/sui/transactions";
 import { PACKAGE_ID } from "../config";
 import { encryptForForm } from "../seal/encrypt";
 import { storeBlob } from "../walrus/client";
+import type { SignAndExecute } from "../walrus/sdk";
 import type { FormSchema, SubmissionPayload } from "./types";
 
 const CLOCK_OBJECT_ID = "0x6";
@@ -21,6 +22,8 @@ export interface SubmitArgs {
   payload: SubmissionPayload;
   fileBlobIds?: string[];
   createReputation?: boolean;
+  signAndExecute?: SignAndExecute;
+  owner?: string;
 }
 
 export interface SubmitResult {
@@ -48,7 +51,10 @@ export async function buildSubmissionTx(args: SubmitArgs): Promise<SubmitResult>
     blobBytes = encrypted;
   }
 
-  const { blobId } = await storeBlob(blobBytes);
+  const { blobId } = await storeBlob(blobBytes, {
+    signAndExecute: args.signAndExecute,
+    owner: args.owner,
+  });
 
   const tx = new Transaction();
   tx.moveCall({

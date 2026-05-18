@@ -19,6 +19,8 @@ export interface FormRendererProps {
   onDisconnect?: () => void;
   footerNote?: string;
   onSubmit: (payload: SubmissionPayload, fileBlobIds: string[]) => Promise<void>;
+  walrusSignAndExecute?: import("@/walrus/sdk").SignAndExecute;
+  walrusOwner?: string;
 }
 
 type SubmitState = "idle" | "signing" | "submitting" | "done" | "error";
@@ -31,6 +33,8 @@ export function FormRenderer({
   onDisconnect,
   footerNote,
   onSubmit,
+  walrusSignAndExecute,
+  walrusOwner,
 }: FormRendererProps) {
   const [values, setValues] = useState<Record<string, SubmissionValue>>({});
   const [state, setState] = useState<SubmitState>("idle");
@@ -150,6 +154,8 @@ export function FormRenderer({
             field={field}
             value={values[field.id]}
             onChange={(v) => setValue(field.id, v)}
+            walrusSignAndExecute={walrusSignAndExecute}
+            walrusOwner={walrusOwner}
           />
         ))}
       </div>
@@ -372,10 +378,14 @@ function FieldInput({
   field,
   value,
   onChange,
+  walrusSignAndExecute,
+  walrusOwner,
 }: {
   field: FormField;
   value: SubmissionValue | undefined;
   onChange: (v: SubmissionValue) => void;
+  walrusSignAndExecute?: import("@/walrus/sdk").SignAndExecute;
+  walrusOwner?: string;
 }) {
   const labelEl = (
     <div className="flex flex-col gap-0.5">
@@ -520,7 +530,10 @@ function FieldInput({
                 if (!file) return;
                 try {
                   const buf = new Uint8Array(await file.arrayBuffer());
-                  const { blobId } = await storeBlob(buf);
+                  const { blobId } = await storeBlob(buf, {
+                    signAndExecute: walrusSignAndExecute,
+                    owner: walrusOwner,
+                  });
                   onChange({ type: "file", blobId, mimeType: file.type, encrypted: false });
                 } catch (err) {
                   alert(`Upload failed: ${err instanceof Error ? err.message : String(err)}`);

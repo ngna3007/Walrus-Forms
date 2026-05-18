@@ -74,9 +74,10 @@ export async function writeFilesWithWallet({
   await flow.encode();
 
   const registerTx = flow.register({ epochs, owner, deletable });
-  await signAndExecute({ transaction: registerTx });
+  const registerResult = await signAndExecute({ transaction: registerTx });
+  const registerDigest = (registerResult as { digest?: string })?.digest;
 
-  await flow.upload();
+  await flow.upload({ digest: registerDigest });
 
   const certifyTx = flow.certify();
   await signAndExecute({ transaction: certifyTx });
