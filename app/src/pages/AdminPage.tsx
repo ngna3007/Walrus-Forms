@@ -59,7 +59,7 @@ import { creditsForVotes, votesFromCredits } from "@/forms/voting";
 import { cn, copyText, relativeTime, truncateAddr, truncateBlob } from "@/lib/utils";
 import { MarkdownView } from "@/components/MarkdownView";
 import { NETWORK, PACKAGE_CONFIGURED, PACKAGE_ID, WAL_COIN_TYPE } from "@/config";
-import { getFileUrl, readBlob, readJson } from "@/walrus/client";
+import { readBlob, readJson, readQuiltEntry } from "@/walrus/client";
 import { decryptSubmission } from "@/seal/decrypt";
 import { useSessionKey } from "@/hooks/useSessionKey";
 import { WalrusBlobStatus } from "@/components/WalrusBlobStatus";
@@ -90,6 +90,46 @@ interface Row {
   suiSubmissionObjectId?: string;
   payload?: SubmissionPayload;
   resolvedSeverity?: number;
+}
+
+function FilePreview({ blobId, submissionBlobId, mimeType }: { blobId: string; submissionBlobId: string; mimeType: string }) {
+  const [objectUrl, setObjectUrl] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let url: string | null = null;
+    let cancelled = false;
+    (async () => {
+      try {
+        const bytes = /^file-\d+$/.test(blobId)
+          ? await readQuiltEntry(submissionBlobId, blobId)
+          : await readBlob(blobId);
+        const blob = new Blob([bytes.buffer as ArrayBuffer], { type: mimeType || "application/octet-stream" });
+        url = URL.createObjectURL(blob);
+        if (!cancelled) setObjectUrl(url);
+      } catch {
+        if (!cancelled) setFailed(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+      if (url) URL.revokeObjectURL(url);
+    };
+  }, [blobId, submissionBlobId, mimeType]);
+
+  if (failed) return <span className="text-xs text-muted-foreground">Failed to load file</span>;
+  if (!objectUrl) return <span className="text-xs text-muted-foreground animate-pulse">Loading…</span>;
+  if (mimeType.startsWith("image/")) {
+    return <img src={objectUrl} className="mt-1 max-w-full max-h-64 rounded-lg object-contain border border-border" />;
+  }
+  if (mimeType.startsWith("video/")) {
+    return <video src={objectUrl} controls className="mt-1 max-w-full max-h-64 rounded-lg border border-border" />;
+  }
+  return (
+    <a href={objectUrl} download className="text-primary hover:underline font-mono text-xs">
+      Download file
+    </a>
+  );
 }
 
 export function AdminPage() {
@@ -1422,16 +1462,9 @@ function Drawer({
                     )}
                     {v?.type === "checkbox" && v.value.join(", ")}
                     {v?.type === "stars" && "★".repeat(v.value)}
-                    {v?.type === "file" && !v.encrypted && (() => {
-                      const url = getFileUrl(v.blobId, row.blobId);
-                      if (v.mimeType.startsWith("image/")) {
-                        return <img src={url} alt={f.label} className="mt-1 max-w-full max-h-64 rounded-lg object-contain border border-border" />;
-                      }
-                      if (v.mimeType.startsWith("video/")) {
-                        return <video src={url} controls className="mt-1 max-w-full max-h-64 rounded-lg border border-border" />;
-                      }
-                      return <a href={url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline font-mono text-xs">{truncateBlob(v.blobId, 18)}</a>;
-                    })()}
+                    {v?.type === "file" && !v.encrypted && (
+                      <FilePreview blobId={v.blobId} submissionBlobId={row.blobId} mimeType={v.mimeType} />
+                    )}
                     {v?.type === "file" && v.encrypted && (
                       <span className="font-mono text-xs text-muted-foreground">{truncateBlob(v.blobId, 18)}</span>
                     )}
