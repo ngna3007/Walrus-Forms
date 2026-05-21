@@ -95,6 +95,7 @@ interface Row {
 function FilePreview({ blobId, submissionBlobId, mimeType }: { blobId: string; submissionBlobId: string; mimeType: string }) {
   const [objectUrl, setObjectUrl] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
 
   useEffect(() => {
     let url: string | null = null;
@@ -115,9 +116,21 @@ function FilePreview({ blobId, submissionBlobId, mimeType }: { blobId: string; s
       cancelled = true;
       if (url) URL.revokeObjectURL(url);
     };
-  }, [blobId, submissionBlobId, mimeType]);
+  }, [blobId, submissionBlobId, mimeType, retryCount]);
 
-  if (failed) return <span className="text-xs text-muted-foreground">Failed to load file</span>;
+  if (failed) {
+    return (
+      <span className="text-xs text-muted-foreground inline-flex items-center gap-2">
+        Failed to load file
+        <button
+          className="underline hover:text-foreground"
+          onClick={() => { setFailed(false); setRetryCount((n) => n + 1); }}
+        >
+          Retry
+        </button>
+      </span>
+    );
+  }
   if (!objectUrl) return <span className="text-xs text-muted-foreground animate-pulse">Loading…</span>;
   if (mimeType.startsWith("image/")) {
     return <img src={objectUrl} className="mt-1 max-w-full max-h-64 rounded-lg object-contain border border-border" />;
@@ -1064,6 +1077,11 @@ function toRow(record: StoredSubmissionRecord): Row {
   };
 }
 
+function hasFilePending(payload: SubmissionPayload | undefined): boolean {
+  if (!payload) return false;
+  return Object.values(payload.values).some((v) => v.type === "file_pending");
+}
+
 function mergeSubmissionRecords(
   indexed: StoredSubmissionRecord[],
   onchain: StoredSubmissionRecord[],
@@ -1078,7 +1096,7 @@ function mergeSubmissionRecords(
       // Chain status wins when we have a real Submission object — old local
       // cache writes can no longer falsely advance state to Resolved.
       status: existing && existing.suiSubmissionObjectId ? existing.status : record.status,
-      payload: record.payload ?? existing?.payload,
+      payload: hasFilePending(record.payload) ? (existing?.payload ?? record.payload) : (record.payload ?? existing?.payload),
       decrypted: record.decrypted || Boolean(existing?.decrypted),
     });
   }
