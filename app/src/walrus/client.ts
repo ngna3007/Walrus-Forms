@@ -201,6 +201,18 @@ export async function readQuiltEntry(quiltBlobId: string, identifier: string): P
   );
 }
 
+/**
+ * Returns a public HTTP URL for a Walrus file.
+ * Handles both direct blob IDs and quilt-entry identifiers (e.g. "file-0").
+ */
+export function getFileUrl(blobId: string, quiltBlobId?: string): string {
+  const base = aggregators()[0];
+  if (/^file-\d+$/.test(blobId) && quiltBlobId) {
+    return `${base}/v1/blobs/by-quilt-id/${quiltBlobId}/${blobId}`;
+  }
+  return `${base}/v1/blobs/${blobId}`;
+}
+
 export async function readJson<T>(blobId: string): Promise<T> {
   const bytes = await readBlob(blobId);
   const text = new TextDecoder().decode(bytes);

@@ -1,14 +1,20 @@
+import { getFileUrl } from "@/walrus/client";
 import type { FormSchema, SubmissionPayload, SubmissionValue } from "./types";
 
-export function exportCsv(schema: FormSchema, submissions: SubmissionPayload[]): string {
+export interface CsvSubmission {
+  payload: SubmissionPayload;
+  walrusBlobId: string;
+}
+
+export function exportCsv(schema: FormSchema, submissions: CsvSubmission[]): string {
   const headers = ["submission_id", "submitted_at", ...schema.fields.map((f) => f.label)];
   const lines = [headers.map(csvCell).join(",")];
 
-  for (const sub of submissions) {
+  for (const { payload: sub, walrusBlobId } of submissions) {
     const row: string[] = [
       "",
       new Date(sub.submittedAt).toISOString(),
-      ...schema.fields.map((f) => valueToCell(sub.values[f.id])),
+      ...schema.fields.map((f) => valueToCell(sub.values[f.id], walrusBlobId)),
     ];
     lines.push(row.map(csvCell).join(","));
   }
@@ -16,7 +22,7 @@ export function exportCsv(schema: FormSchema, submissions: SubmissionPayload[]):
   return lines.join("\n");
 }
 
-function valueToCell(v: SubmissionValue | undefined): string {
+function valueToCell(v: SubmissionValue | undefined, walrusBlobId: string): string {
   if (!v) return "";
   switch (v.type) {
     case "text":
@@ -28,7 +34,7 @@ function valueToCell(v: SubmissionValue | undefined): string {
     case "stars":
       return String(v.value);
     case "file":
-      return v.blobId;
+      return getFileUrl(v.blobId, walrusBlobId);
     case "file_pending":
       return v.file.name;
   }

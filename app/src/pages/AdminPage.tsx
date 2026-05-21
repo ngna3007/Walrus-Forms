@@ -59,7 +59,7 @@ import { creditsForVotes, votesFromCredits } from "@/forms/voting";
 import { cn, copyText, relativeTime, truncateAddr, truncateBlob } from "@/lib/utils";
 import { MarkdownView } from "@/components/MarkdownView";
 import { NETWORK, PACKAGE_CONFIGURED, PACKAGE_ID, WAL_COIN_TYPE } from "@/config";
-import { readBlob, readJson } from "@/walrus/client";
+import { getFileUrl, readBlob, readJson } from "@/walrus/client";
 import { decryptSubmission } from "@/seal/decrypt";
 import { useSessionKey } from "@/hooks/useSessionKey";
 import { WalrusBlobStatus } from "@/components/WalrusBlobStatus";
@@ -536,8 +536,10 @@ export function AdminPage() {
   }
 
   function handleExport() {
-    const payloads = filtered.map((r) => r.payload).filter((p): p is SubmissionPayload => Boolean(p));
-    const csv = exportCsv(schemaForExport, payloads);
+    const submissions = filtered
+      .filter((r) => r.payload)
+      .map((r) => ({ payload: r.payload as SubmissionPayload, walrusBlobId: r.blobId }));
+    const csv = exportCsv(schemaForExport, submissions);
     const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -939,7 +941,11 @@ export function AdminPage() {
                 <div className="text-sm truncate">
                   {row.decrypted && row.payload ? (
                     Object.values(row.payload.values)
-                      .map((v) => (v.type === "text" || v.type === "url" || v.type === "dropdown" ? v.value : ""))
+                      .map((v) => {
+                        if (v.type === "text" || v.type === "url" || v.type === "dropdown") return v.value;
+                        if (v.type === "file") return v.mimeType.startsWith("image/") ? "[image]" : v.mimeType.startsWith("video/") ? "[video]" : "[file]";
+                        return "";
+                      })
                       .filter(Boolean)
                       .join(" · ")
                       .slice(0, 100)
@@ -1416,8 +1422,18 @@ function Drawer({
                     )}
                     {v?.type === "checkbox" && v.value.join(", ")}
                     {v?.type === "stars" && "★".repeat(v.value)}
-                    {v?.type === "file" && (
-                      <span className="font-mono text-xs">{truncateBlob(v.blobId, 18)}</span>
+                    {v?.type === "file" && !v.encrypted && (() => {
+                      const url = getFileUrl(v.blobId, row.blobId);
+                      if (v.mimeType.startsWith("image/")) {
+                        return <img src={url} alt={f.label} className="mt-1 max-w-full max-h-64 rounded-lg object-contain border border-border" />;
+                      }
+                      if (v.mimeType.startsWith("video/")) {
+                        return <video src={url} controls className="mt-1 max-w-full max-h-64 rounded-lg border border-border" />;
+                      }
+                      return <a href={url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline font-mono text-xs">{truncateBlob(v.blobId, 18)}</a>;
+                    })()}
+                    {v?.type === "file" && v.encrypted && (
+                      <span className="font-mono text-xs text-muted-foreground">{truncateBlob(v.blobId, 18)}</span>
                     )}
                   </div>
                 </div>
