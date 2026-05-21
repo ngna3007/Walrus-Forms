@@ -175,7 +175,7 @@ export function SubmitPage() {
       })),
     );
 
-    const { submissionBlobId, fileBlobIds, txBuilder, certifyTxResult } = await buildSubmissionTx({
+    const { submissionBlobId, fileBlobIds, rewrittenPayload, txBuilder, certifyTxResult } = await buildSubmissionTx({
       formId,
       formObjectId: formId,
       policy,
@@ -227,7 +227,7 @@ export function SubmitPage() {
         txDigest,
         encrypted: policy.kind !== "public",
         decrypted: policy.kind === "public",
-        payload: policy.kind === "public" ? submissionPayload : undefined,
+        payload: policy.kind === "public" ? rewrittenPayload : undefined,
         fileBlobIds,
       },
       formMeta?.owner,

@@ -37,6 +37,8 @@ export interface SubmitArgs {
 export interface SubmitResult {
   submissionBlobId: string;
   fileBlobIds: string[];
+  /** Payload with file_pending replaced by file values (proper blobIds). Use this for saveSubmission. */
+  rewrittenPayload: SubmissionPayload;
   /** Set in publisher mode: the caller must sign this to complete the submission. */
   txBuilder?: Transaction;
   /** Set in SDK/quilt mode: certify+submit tx already executed. */
@@ -105,6 +107,7 @@ export async function buildSubmissionTx(args: SubmitArgs): Promise<SubmitResult>
     return {
       submissionBlobId: quiltResult.quiltBlobId,
       fileBlobIds,
+      rewrittenPayload,
       certifyTxResult: quiltResult.certifyTxResult,
     };
   }
@@ -130,7 +133,7 @@ export async function buildSubmissionTx(args: SubmitArgs): Promise<SubmitResult>
     ],
   });
 
-  return { submissionBlobId: blobId, fileBlobIds: uploadedFileBlobIds, txBuilder: tx };
+  return { submissionBlobId: blobId, fileBlobIds: uploadedFileBlobIds, rewrittenPayload, txBuilder: tx };
 }
 
 async function encrypt(policy: FormPolicy, formId: string, data: Uint8Array): Promise<Uint8Array> {

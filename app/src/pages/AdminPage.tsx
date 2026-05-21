@@ -984,6 +984,7 @@ export function AdminPage() {
                       .map((v) => {
                         if (v.type === "text" || v.type === "url" || v.type === "dropdown") return v.value;
                         if (v.type === "file") return v.mimeType.startsWith("image/") ? "[image]" : v.mimeType.startsWith("video/") ? "[video]" : "[file]";
+                        if (v.type === "file_pending") return "[file]";
                         return "";
                       })
                       .filter(Boolean)
@@ -1467,6 +1468,9 @@ function Drawer({
                     )}
                     {v?.type === "file" && v.encrypted && (
                       <span className="font-mono text-xs text-muted-foreground">{truncateBlob(v.blobId, 18)}</span>
+                    )}
+                    {v?.type === "file_pending" && (
+                      <span className="text-xs text-muted-foreground italic">File uploaded (re-submit to view preview)</span>
                     )}
                   </div>
                 </div>
