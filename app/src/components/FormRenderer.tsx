@@ -4,8 +4,15 @@ import { Star, Upload, Loader2, Check, Bold, Italic, Underline, Strikethrough, L
 import { Button } from "@/components/ui/button";
 import { Input, Textarea, Label } from "@/components/ui/input";
 import { cn, truncateBlob } from "@/lib/utils";
+import { WALRUS_USE_SDK } from "@/config";
 import { storeBlob } from "@/walrus/client";
 import type { FormField, FormSchema, SubmissionPayload, SubmissionValue } from "@/forms/types";
+
+export interface PendingFileUpload {
+  file: File;
+  mimeType: string;
+  fieldKey: string;
+}
 
 export interface FormRendererProps {
   schema: FormSchema;
@@ -18,7 +25,7 @@ export interface FormRendererProps {
   /** Called when user clicks disconnect inside the wallet field. */
   onDisconnect?: () => void;
   footerNote?: string;
-  onSubmit: (payload: SubmissionPayload, fileBlobIds: string[]) => Promise<void>;
+  onSubmit: (payload: SubmissionPayload, pendingFiles: PendingFileUpload[]) => Promise<void>;
   walrusSignAndExecute?: import("@/walrus/sdk").SignAndExecute;
   walrusOwner?: string;
 }
@@ -87,15 +94,15 @@ export function FormRenderer({
 
     setState("signing");
     try {
-      const fileBlobIds: string[] = [];
-      for (const v of Object.values(values)) {
-        if (v.type === "file") fileBlobIds.push(v.blobId);
+      const pendingFiles: PendingFileUpload[] = [];
+      for (const [key, v] of Object.entries(values)) {
+        if (v.type === "file_pending") pendingFiles.push({ file: v.file, mimeType: v.mimeType, fieldKey: key });
       }
 
       setState("submitting");
       await onSubmit(
         { version: 1, formId, submitter, submittedAt: Date.now(), values },
-        fileBlobIds,
+        pendingFiles,
       );
       setState("done");
     } catch (err) {
@@ -528,15 +535,20 @@ function FieldInput({
               onChange={async (e) => {
                 const file = e.target.files?.[0];
                 if (!file) return;
-                try {
-                  const buf = new Uint8Array(await file.arrayBuffer());
-                  const { blobId } = await storeBlob(buf, {
-                    signAndExecute: walrusSignAndExecute,
-                    owner: walrusOwner,
-                  });
-                  onChange({ type: "file", blobId, mimeType: file.type, encrypted: false });
-                } catch (err) {
-                  alert(`Upload failed: ${err instanceof Error ? err.message : String(err)}`);
+                if (WALRUS_USE_SDK) {
+                  // Defer upload to submit time — packed into quilt with submission JSON.
+                  onChange({ type: "file_pending", file, mimeType: file.type });
+                } else {
+                  try {
+                    const buf = new Uint8Array(await file.arrayBuffer());
+                    const { blobId } = await storeBlob(buf, {
+                      signAndExecute: walrusSignAndExecute,
+                      owner: walrusOwner,
+                    });
+                    onChange({ type: "file", blobId, mimeType: file.type, encrypted: false });
+                  } catch (err) {
+                    alert(`Upload failed: ${err instanceof Error ? err.message : String(err)}`);
+                  }
                 }
               }}
             />
@@ -554,6 +566,12 @@ function FieldInput({
                 <div className="font-mono text-xs text-secondary-strong dark:text-secondary inline-flex items-center gap-1.5">
                   <Check className="h-3 w-3" />
                   {truncateBlob(value.blobId, 16)}
+                </div>
+              )}
+              {value?.type === "file_pending" && (
+                <div className="text-xs text-secondary-strong dark:text-secondary inline-flex items-center gap-1.5">
+                  <Check className="h-3 w-3" />
+                  {value.file.name}
                 </div>
               )}
             </div>

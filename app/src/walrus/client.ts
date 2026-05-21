@@ -179,7 +179,42 @@ export async function readBlob(blobId: string): Promise<Uint8Array> {
   }
 }
 
+/**
+ * Read a named entry from a quilt blob via aggregator HTTP.
+ * Used for submissions stored as quilts (submission JSON + file attachments).
+ */
+export async function readQuiltEntry(quiltBlobId: string, identifier: string): Promise<Uint8Array> {
+  let lastErr: unknown = null;
+  for (const base of aggregators()) {
+    try {
+      const resp = await fetch(`${base}/v1/blobs/by-quilt-id/${quiltBlobId}/${encodeURIComponent(identifier)}`);
+      if (resp.ok) {
+        return new Uint8Array(await resp.arrayBuffer());
+      }
+      lastErr = new Error(`${base} HTTP ${resp.status}`);
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  throw new Error(
+    `readQuiltEntry ${quiltBlobId}/${identifier}: ${lastErr instanceof Error ? lastErr.message : String(lastErr)}`,
+  );
+}
+
 export async function readJson<T>(blobId: string): Promise<T> {
   const bytes = await readBlob(blobId);
-  return JSON.parse(new TextDecoder().decode(bytes));
+  const text = new TextDecoder().decode(bytes);
+  try {
+    return JSON.parse(text) as T;
+  } catch (jsonErr) {
+    // Blob may be a quilt (binary format) — try the "submission" named entry.
+    try {
+      const subBytes = await readQuiltEntry(blobId, "submission");
+      return JSON.parse(new TextDecoder().decode(subBytes)) as T;
+    } catch (quiltErr) {
+      throw new Error(
+        `readJson failed for ${blobId}: JSON parse: ${jsonErr instanceof Error ? jsonErr.message : String(jsonErr)}; quilt: ${quiltErr instanceof Error ? quiltErr.message : String(quiltErr)}`,
+      );
+    }
+  }
 }

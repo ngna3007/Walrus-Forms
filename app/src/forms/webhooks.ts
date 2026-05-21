@@ -27,7 +27,8 @@ function formatWebhookMessage(hook: WebhookSettings, payload: SubmissionPayload)
       if (value.type === "text" || value.type === "url" || value.type === "dropdown") return value.value;
       if (value.type === "stars") return `${value.value} stars`;
       if (value.type === "checkbox") return value.value.join(", ");
-      return value.blobId;
+      if (value.type === "file") return value.blobId;
+      return "";
     })
     .filter(Boolean)
     .join(" | ")

@@ -17,7 +17,7 @@ import { toHex } from "@mysten/sui/utils";
 import { Logo } from "@/components/Logo";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { FormRenderer } from "@/components/FormRenderer";
+import { FormRenderer, type PendingFileUpload } from "@/components/FormRenderer";
 import { buildSubmissionTx, type FormPolicy } from "@/forms/submit";
 import { saveSubmission } from "@/forms/submissions";
 import { bumpFormSubmissionCount } from "@/forms/localForms";
@@ -158,30 +158,42 @@ export function SubmitPage() {
     };
   }, [formMeta?.schemaBlobId]);
 
-  async function handleSubmit(payload: SubmissionPayload, fileBlobIds: string[]) {
+  async function handleSubmit(payload: SubmissionPayload, pendingFiles: PendingFileUpload[]) {
     if (!schema || !formId) throw new Error("Form not loaded");
     if (!account?.address) throw new Error("Connect a wallet to submit this form.");
     const requireWalletId = Boolean(schema.requireWalletId);
-    // Anonymous default: synthesise an opaque id derived from blob+time so admin
-    // can still distinguish rows without revealing the submitter wallet.
     const anonymousId = `anon:${cryptoRandomHex(8)}`;
     const submitterForPayload = requireWalletId ? account.address : anonymousId;
     const submissionPayload: SubmissionPayload = { ...payload, submitter: submitterForPayload };
-    const { submissionBlobId, txBuilder } = await buildSubmissionTx({
+
+    // Convert File objects to Uint8Array buffers for the submission quilt.
+    const fileBuffers = await Promise.all(
+      pendingFiles.map(async (pf) => ({
+        contents: new Uint8Array(await pf.file.arrayBuffer()),
+        mimeType: pf.mimeType,
+        fieldKey: pf.fieldKey,
+      })),
+    );
+
+    const { submissionBlobId, fileBlobIds, txBuilder, certifyTxResult } = await buildSubmissionTx({
       formId,
       formObjectId: formId,
       policy,
       schema,
       payload: submissionPayload,
-      fileBlobIds,
+      pendingFiles: fileBuffers,
       createReputation: Boolean(schema.reputation?.enabled),
       signAndExecute,
       owner: account.address,
     });
+
     let result: SuiTransactionBlockResponse;
-    // Only attempt the sponsored path when both toggles are on AND the sponsor URL
-    // is wired up; otherwise the helper throws synchronously and we double-sign.
-    if (ENOKI_SPONSORED_SUBMISSIONS && ENOKI_SPONSOR_CONFIGURED) {
+    if (!txBuilder) {
+      // SDK/quilt mode: certify+submit already executed inside buildSubmissionTx.
+      result = certifyTxResult as SuiTransactionBlockResponse;
+    } else if (ENOKI_SPONSORED_SUBMISSIONS && ENOKI_SPONSOR_CONFIGURED) {
+      // Only attempt the sponsored path when both toggles are on AND the sponsor URL
+      // is wired up; otherwise the helper throws synchronously and we double-sign.
       try {
         result = await executeSponsoredSubmit({
           transaction: txBuilder,
@@ -199,7 +211,6 @@ export function SubmitPage() {
     }
     const txDigest = typeof result.digest === "string" ? result.digest : undefined;
     const submissionObjectId = extractSubmissionObjectId(result);
-    // Receipt is minted on resolve, not on submit — see reputation::mint_receipt.
     const reputationObjectId: string | null = null;
     const now = Date.now();
     await saveSubmission(
@@ -335,8 +346,6 @@ export function SubmitPage() {
                 onDisconnect={account?.address ? () => disconnect() : undefined}
                 footerNote={sponsorEnabled ? "Submit transaction is sponsored using Enoki" : undefined}
                 onSubmit={handleSubmit}
-                walrusSignAndExecute={signAndExecute}
-                walrusOwner={account?.address}
               />
             )}
             </div>{/* /inner padding */}

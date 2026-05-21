@@ -1,6 +1,6 @@
 import { SuiGrpcClient } from "@mysten/sui/grpc";
 import type { Transaction } from "@mysten/sui/transactions";
-import { walrus } from "@mysten/walrus";
+import { WalrusFile, walrus } from "@mysten/walrus";
 
 import { FULLNODE_URL, NETWORK, WALRUS_DEFAULT_EPOCHS } from "../config";
 
@@ -100,6 +100,62 @@ export async function writeFilesWithWallet({
       };
     }),
   );
+}
+
+export interface WriteSubmissionQuiltArgs {
+  submissionBytes: Uint8Array;
+  pendingFiles: { contents: Uint8Array; identifier: string; mimeType: string }[];
+  owner: string;
+  epochs?: number;
+  deletable?: boolean;
+  signAndExecute: SignAndExecute;
+  augmentCertifyTx?: (quiltBlobId: string, tx: Transaction) => void;
+}
+
+export interface WriteSubmissionQuiltResult {
+  quiltBlobId: string;
+  fileIdentifiers: string[];
+  certifyTxResult: unknown;
+}
+
+/**
+ * Batch-upload submission JSON + file attachments as one quilt blob.
+ * 2 wallet popups: register (popup 1) + certify+submit merged (popup 2).
+ */
+export async function writeSubmissionQuilt({
+  submissionBytes,
+  pendingFiles,
+  owner,
+  epochs = WALRUS_DEFAULT_EPOCHS,
+  deletable = false,
+  signAndExecute,
+  augmentCertifyTx,
+}: WriteSubmissionQuiltArgs): Promise<WriteSubmissionQuiltResult> {
+  const client = getWalrusSdkClient();
+
+  const walrusFiles = [
+    WalrusFile.from({ contents: submissionBytes, identifier: "submission" }),
+    ...pendingFiles.map((f) => WalrusFile.from({ contents: f.contents, identifier: f.identifier })),
+  ];
+
+  const flow = client.walrus.writeFilesFlow({ files: walrusFiles });
+
+  const encoded = await flow.encode();
+  const registerTx = flow.register({ epochs, owner, deletable });
+  const registerResult = await signAndExecute({ transaction: registerTx });
+  const registerDigest = (registerResult as { digest?: string })?.digest;
+
+  await flow.upload({ digest: registerDigest });
+
+  const certifyTx = flow.certify();
+  if (augmentCertifyTx) augmentCertifyTx(encoded.blobId, certifyTx);
+  const certifyTxResult = await signAndExecute({ transaction: certifyTx });
+
+  return {
+    quiltBlobId: encoded.blobId,
+    fileIdentifiers: pendingFiles.map((f) => f.identifier),
+    certifyTxResult,
+  };
 }
 
 /** Read a blob through the SDK. Slower than aggregator HTTP but no aggregator trust. */

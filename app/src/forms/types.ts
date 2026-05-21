@@ -85,7 +85,8 @@ export type SubmissionValue =
   | { type: "dropdown"; value: string }
   | { type: "checkbox"; value: string[] }
   | { type: "stars"; value: number }
-  | { type: "file"; blobId: string; mimeType: string; encrypted: boolean };
+  | { type: "file"; blobId: string; mimeType: string; encrypted: boolean }
+  | { type: "file_pending"; file: File; mimeType: string };
 
 export interface SubmissionPayload {
   version: 1;

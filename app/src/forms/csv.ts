@@ -29,6 +29,8 @@ function valueToCell(v: SubmissionValue | undefined): string {
       return String(v.value);
     case "file":
       return v.blobId;
+    case "file_pending":
+      return v.file.name;
   }
 }
 
