@@ -1,5 +1,6 @@
 import {
   NETWORK,
+  WALRUS_AGGREGATOR_URL,
   WALRUS_DEFAULT_EPOCHS,
   WALRUS_PUBLISHER_URL,
   WALRUS_USE_SDK,
@@ -34,12 +35,14 @@ const TESTNET_AGGREGATORS = [
   "https://walrus-testnet-aggregator.nodes.guru",
 ];
 const MAINNET_AGGREGATORS = [
-  "https://aggregator.walrus.space",
-  "https://wal-aggregator-mainnet.staketab.org",
+  "https://aggregator.walrus-mainnet.walrus.space",
 ];
 
 function aggregators(): string[] {
-  return NETWORK === "mainnet" ? MAINNET_AGGREGATORS : TESTNET_AGGREGATORS;
+  // Always put the configured aggregator first so env-var overrides take effect.
+  const configured = WALRUS_AGGREGATOR_URL;
+  const defaults = NETWORK === "mainnet" ? MAINNET_AGGREGATORS : TESTNET_AGGREGATORS;
+  return configured && !defaults.includes(configured) ? [configured, ...defaults] : defaults;
 }
 
 // ---------------------------------------------------------------------------
