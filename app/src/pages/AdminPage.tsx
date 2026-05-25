@@ -151,6 +151,7 @@ export function AdminPage() {
   const [schema, setSchema] = useState<FormSchema | null>(null);
   const [schemaError, setSchemaError] = useState<string | null>(null);
   const [rows, setRows] = useState<Row[]>([]);
+  const [submissionsLoading, setSubmissionsLoading] = useState(true);
   const [optimisticStatus, setOptimisticStatus] = useState<Record<string, number>>({});
   const [statusFilter, setStatusFilter] = useState<number | "all">("all");
   const [openId, setOpenId] = useState<string | null>(null);
@@ -311,40 +312,46 @@ export function AdminPage() {
   useEffect(() => {
     if (!formId || !realFormId) {
       setRows([]);
+      setSubmissionsLoading(false);
       return;
     }
     let cancelled = false;
+    setSubmissionsLoading(true);
 
     async function loadSubmissions() {
-      const [indexed, onchain] = await Promise.all([
-        readSubmissions(formId ?? ""),
-        readOnchainSubmissions(client, formId ?? "", activeFormMeta?.policyType ?? 0).catch(() => [] as StoredSubmissionRecord[]),
-      ]);
-      const indexedIds = new Set(indexed.map((submission) => submission.id));
-      const missing = onchain.filter((submission) => !indexedIds.has(submission.id));
-      await Promise.all(missing.map((s) => saveSubmission(s, activeFormMeta?.owner)));
-      if (cancelled) return;
-      const merged = mergeSubmissionRecords(indexed, onchain).map(toRow);
-      // Apply optimistic status overrides — but clear them when chain status
-      // catches up, so we never leave stale local state on screen.
-      const clearedIds: string[] = [];
-      const final = merged.map((row) => {
-        const pending = optimisticStatus[row.submissionId];
-        if (pending === undefined) return row;
-        if (row.status === pending) {
-          clearedIds.push(row.submissionId);
-          return row;
-        }
-        return { ...row, status: pending };
-      });
-      if (clearedIds.length) {
-        setOptimisticStatus((prev) => {
-          const next = { ...prev };
-          for (const id of clearedIds) delete next[id];
-          return next;
+      try {
+        const [indexed, onchain] = await Promise.all([
+          readSubmissions(formId ?? ""),
+          readOnchainSubmissions(client, formId ?? "", activeFormMeta?.policyType ?? 0).catch(() => [] as StoredSubmissionRecord[]),
+        ]);
+        const indexedIds = new Set(indexed.map((submission) => submission.id));
+        const missing = onchain.filter((submission) => !indexedIds.has(submission.id));
+        await Promise.all(missing.map((s) => saveSubmission(s, activeFormMeta?.owner)));
+        if (cancelled) return;
+        const merged = mergeSubmissionRecords(indexed, onchain).map(toRow);
+        // Apply optimistic status overrides — but clear them when chain status
+        // catches up, so we never leave stale local state on screen.
+        const clearedIds: string[] = [];
+        const final = merged.map((row) => {
+          const pending = optimisticStatus[row.submissionId];
+          if (pending === undefined) return row;
+          if (row.status === pending) {
+            clearedIds.push(row.submissionId);
+            return row;
+          }
+          return { ...row, status: pending };
         });
+        if (clearedIds.length) {
+          setOptimisticStatus((prev) => {
+            const next = { ...prev };
+            for (const id of clearedIds) delete next[id];
+            return next;
+          });
+        }
+        setRows(final);
+      } finally {
+        if (!cancelled) setSubmissionsLoading(false);
       }
-      setRows(final);
     }
 
     void loadSubmissions();
@@ -951,7 +958,18 @@ export function AdminPage() {
           <div>Actions</div>
         </div>
         <ul>
-          {filtered.length === 0 && (
+          {filtered.length === 0 && submissionsLoading && (
+            <li className="px-6 py-12 text-center text-muted-foreground">
+              <div className="flex items-center justify-center gap-3">
+                <span className="h-4 w-4 rounded-full border-2 border-primary/30 border-t-primary animate-spin" />
+                <p className="font-serif italic text-2xl">Loading submissions…</p>
+              </div>
+              <p className="mt-2 text-sm">
+                Scanning on-chain events and Walrus blobs. This may take a moment for forms with many submissions.
+              </p>
+            </li>
+          )}
+          {filtered.length === 0 && !submissionsLoading && (
             <li className="px-6 py-12 text-center text-muted-foreground">
               <p className="font-serif italic text-2xl">No submissions yet.</p>
               <p className="mt-2 text-sm">
