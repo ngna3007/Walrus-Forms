@@ -225,6 +225,7 @@ export function AdminPage() {
       policyObjectId: policyObjectIdFromField(fields.policy_object_id),
       unlockTimeMs: BigInt(String(fields.unlock_time_ms ?? "0")),
       open: Boolean(fields.open),
+      submissionCount: Number(fields.submission_count ?? 0),
       objectPackage,
     };
   }, [formObject]);
@@ -526,6 +527,19 @@ export function AdminPage() {
   );
 
   const newCount = rows.filter((r) => r.status === 0).length;
+
+  // Show skeleton while initial submissions load runs, OR while form metadata
+  // is still being fetched (so we don't briefly flash "no submissions yet"
+  // before the chain count arrives), OR when on-chain submission_count is
+  // ahead of what we've materialized locally (events still streaming in).
+  const onchainSubmissionCount = activeFormMeta?.submissionCount ?? 0;
+  const formMetaPending = realFormId && !activeFormMeta;
+  const expectedRowCount = Math.max(onchainSubmissionCount, rows.length);
+  const showSubmissionsSkeleton =
+    submissionsLoading ||
+    Boolean(formMetaPending) ||
+    (onchainSubmissionCount > 0 && rows.length < onchainSubmissionCount);
+  const skeletonRowCount = Math.min(Math.max(expectedRowCount, 3), 8);
 
   function transition(row: Row, status: number) {
     setRows((prev) => prev.map((r) => (r.submissionId === row.submissionId ? { ...r, status } : r)));
@@ -958,18 +972,22 @@ export function AdminPage() {
           <div>Actions</div>
         </div>
         <ul>
-          {filtered.length === 0 && submissionsLoading && (
-            <li className="px-6 py-12 text-center text-muted-foreground">
-              <div className="flex items-center justify-center gap-3">
-                <span className="h-4 w-4 rounded-full border-2 border-primary/30 border-t-primary animate-spin" />
-                <p className="font-serif italic text-2xl">Loading submissions…</p>
-              </div>
-              <p className="mt-2 text-sm">
-                Scanning on-chain events and Walrus blobs. This may take a moment for forms with many submissions.
-              </p>
-            </li>
+          {filtered.length === 0 && showSubmissionsSkeleton && (
+            <>
+              {Array.from({ length: skeletonRowCount }).map((_, i) => (
+                <li key={`sk-${i}`} className="border-b border-border/40 last:border-0">
+                  <div className="grid grid-cols-[1.4fr_1fr_1fr_2fr_180px] items-center gap-4 px-6 py-4">
+                    <div className="h-4 w-32 rounded bg-muted/60 animate-pulse" />
+                    <div className="h-4 w-20 rounded bg-muted/60 animate-pulse" />
+                    <div className="h-5 w-16 rounded-full bg-muted/60 animate-pulse" />
+                    <div className="h-4 w-full max-w-[260px] rounded bg-muted/60 animate-pulse" />
+                    <div className="h-7 w-24 rounded bg-muted/60 animate-pulse" />
+                  </div>
+                </li>
+              ))}
+            </>
           )}
-          {filtered.length === 0 && !submissionsLoading && (
+          {filtered.length === 0 && !showSubmissionsSkeleton && (
             <li className="px-6 py-12 text-center text-muted-foreground">
               <p className="font-serif italic text-2xl">No submissions yet.</p>
               <p className="mt-2 text-sm">
@@ -1073,6 +1091,18 @@ export function AdminPage() {
               )}
             </li>
           ))}
+          {filtered.length > 0 && showSubmissionsSkeleton &&
+            Array.from({ length: Math.min(6, Math.max(0, onchainSubmissionCount - rows.length)) }).map((_, i) => (
+              <li key={`sk-tail-${i}`} className="border-b border-border/40 last:border-0">
+                <div className="grid grid-cols-[1.4fr_1fr_1fr_2fr_180px] items-center gap-4 px-6 py-4">
+                  <div className="h-4 w-32 rounded bg-muted/60 animate-pulse" />
+                  <div className="h-4 w-20 rounded bg-muted/60 animate-pulse" />
+                  <div className="h-5 w-16 rounded-full bg-muted/60 animate-pulse" />
+                  <div className="h-4 w-full max-w-[260px] rounded bg-muted/60 animate-pulse" />
+                  <div className="h-7 w-24 rounded bg-muted/60 animate-pulse" />
+                </div>
+              </li>
+            ))}
         </ul>
       </Card>
       </ConnectGate>
